@@ -86,6 +86,7 @@ pass. Nothing runs on `git commit` — the only gates are the two commands above
 | `backend/src/main/resources/db/migration/` | `V1`–`V3`, append-only |
 | `frontend/src/App.tsx` | all UI state: fetch, filters, edit, import |
 | `.opencode/skills/` | the three skills above |
+| `.opencode/commands/handoff.md` | `/handoff` — update `STATUS.md`, verify, commit, push |
 | `AGENTS.md`, `*/AGENTS.md` | rules, injected per directory |
 | `STATUS.md` | state of play, loaded as an instruction via `opencode.json` |
 | `FRICTION.md` | build log, F-01–F-14, the source for the evidence column |
