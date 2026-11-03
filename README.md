@@ -87,4 +87,5 @@ pass. Nothing runs on `git commit` — the only gates are the two commands above
 | `frontend/src/App.tsx` | all UI state: fetch, filters, edit, import |
 | `.opencode/skills/` | the three skills above |
 | `AGENTS.md`, `*/AGENTS.md` | rules, injected per directory |
+| `STATUS.md` | state of play, loaded as an instruction via `opencode.json` |
 | `FRICTION.md` | build log, F-01–F-14, the source for the evidence column |
