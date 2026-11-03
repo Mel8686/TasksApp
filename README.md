@@ -67,7 +67,8 @@ no frontend tests · no CI · no rate limiting · no OpenAPI. Scope cuts, not ga
 ## Skills
 
 Three skills are vendored under `.opencode/skills/`. The last two columns are the
-evidence record for whether they earn their place.
+evidence record for whether they earn their place; the raw per-feature log behind
+them is `SKILLS.md`.
 
 | Skill | Why this one | Key moves | Invoked | Without it | Evidence so far |
 |---|---|---|---|---|---|
@@ -89,4 +90,5 @@ pass. Nothing runs on `git commit` — the only gates are the two commands above
 | `.opencode/commands/handoff.md` | `/handoff` — update `STATUS.md`, verify, commit, push |
 | `AGENTS.md`, `*/AGENTS.md` | rules, injected per directory |
 | `STATUS.md` | state of play, loaded as an instruction via `opencode.json` |
+| `SKILLS.md` | per-feature evidence behind the skills table |
 | `FRICTION.md` | build log, F-01–F-14, the source for the evidence column |

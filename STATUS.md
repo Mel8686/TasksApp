@@ -11,8 +11,9 @@ are resolved, and keep it under about 15 lines.
 - **Done, for the agreed scope:** CRUD, search + status filter + pagination, CSV
   export/import, optimistic concurrency (`ETag`/`If-Match`; 412 stale, 428
   missing, `*` forces).
-- **Owed:** the written assessment of the three skills. The raw evidence is the
-  table in `README.md` plus `FRICTION.md` F-01–F-14. Nothing is half-finished.
+- **Owed:** the written assessment of the three skills. Evidence is captured per
+  feature in `SKILLS.md` from now on, so the verdict waits for a few more
+  features; nothing is half-finished.
 - **Open decisions, do not change unasked:** no auth or ownership, no DTO layer,
   no CI gate, no new dependencies.
 - **Known oddity:** the dev database has 14 rows; ids 24–30 duplicate 11–17 and

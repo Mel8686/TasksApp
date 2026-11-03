@@ -15,6 +15,11 @@ Load these with the skill tool before starting the work, not after.
 
 Per-directory detail lives in `frontend/AGENTS.md` and `backend/AGENTS.md`.
 
+A feature is not done until it has a row per skill in `SKILLS.md`: what the skill
+caught, what it missed, what it cost. Write it when the feature is done, from what
+happened, not from what the skill promises. The `README.md` table is the summary;
+`SKILLS.md` is the record it summarises.
+
 ## API contract today
 
 - `POST`/`PUT` take `TaskRequest`: `title` not blank and at most 200 chars,
