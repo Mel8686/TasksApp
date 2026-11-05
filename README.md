@@ -39,10 +39,12 @@ needs `If-Match: "<version>"`, per [API](#api).
 
 | Endpoint | Notes |
 |---|---|
-| `GET /api/tasks?q=&status=&page=&size=` | paged list, `PageResponse` |
+| `GET /api/tasks?q=&status=&archived=&page=&size=` | paged list, `PageResponse` |
 | `POST /api/tasks` | create, `201` |
-| `GET` / `PUT` / `DELETE /api/tasks/{id}` | read, update, delete; `404` on a missing id |
-| `GET /api/tasks/export` | CSV of the current filter |
+| `GET` / `PUT /api/tasks/{id}` | read, update; `404` on a missing id |
+| `DELETE /api/tasks/{id}` | archive (soft delete), `204` |
+| `POST /api/tasks/{id}/restore` | un-archive, `200`; `409` if not archived |
+| `GET /api/tasks/export` | CSV of the current filter, with `archivedAt` |
 | `POST /api/tasks/import` | multipart `file`, all-or-nothing |
 
 - `PUT` requires `If-Match: "<version>"`. Stale → `412` with the current row as
@@ -52,12 +54,15 @@ needs `If-Match: "<version>"`, per [API](#api).
   in the log.
 - Bounds: `size` 1–50, `page` 0–10000, `q` ≤ 100, `title` ≤ 200, imports ≤ 1 MiB
   and ≤ 1000 rows. Violations are `400`.
+- Archived rows are hidden from `GET`/`PUT`/`DELETE` and from list/export unless
+  `archived=true`. Import always creates active rows.
 
 ## Data model
 
-`task(id, title, status, due_date, created_at, version)`. `status` is
-`TODO|DOING|DONE`, constrained in the database. `version` is the concurrency token,
-bumped by every write. Migrations `V1`–`V3` are append-only.
+`task(id, title, status, due_date, created_at, archived_at, version)`. `status` is
+`TODO|DOING|DONE`, constrained in the database. `archived_at` is the soft delete:
+null means active. `version` is the concurrency token, bumped by every write.
+Migrations `V1`–`V4` are append-only.
 
 ## Not built yet
 
@@ -84,8 +89,8 @@ pass. Nothing runs on `git commit` — the only gates are the two commands above
 | Path | Contents |
 |---|---|
 | `backend/src/main/java/com/dsk/tasks/` | controller, entity, import/export, error advice, security headers |
-| `backend/src/main/resources/db/migration/` | `V1`–`V3`, append-only |
-| `frontend/src/App.tsx` | all UI state: fetch, filters, edit, import |
+| `backend/src/main/resources/db/migration/` | `V1`–`V4`, append-only |
+| `frontend/src/App.tsx` | all UI state: fetch, filters, edit, archive view, import |
 | `.opencode/skills/` | the three skills above |
 | `.opencode/commands/handoff.md` | `/handoff` — update `STATUS.md`, verify, commit, push |
 | `AGENTS.md`, `*/AGENTS.md` | rules, injected per directory |

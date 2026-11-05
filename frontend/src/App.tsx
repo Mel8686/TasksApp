@@ -7,8 +7,12 @@ type Task = {
   status: string
   dueDate: string | null
   createdAt: string
+  archivedAt: string | null
   version: number
 }
+
+/** Which side of the soft delete the list is showing. */
+type View = 'active' | 'archived'
 
 type Page = {
   content: Task[]
@@ -75,8 +79,13 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
 }
 
-function pageUrl(search: string, status: string, page: number) {
-  const params = new URLSearchParams({ q: search, status, page: String(page) })
+function pageUrl(search: string, status: string, page: number, view: View) {
+  const params = new URLSearchParams({
+    q: search,
+    status,
+    page: String(page),
+    archived: String(view === 'archived'),
+  })
   return `/api/tasks?${params.toString()}`
 }
 
@@ -86,6 +95,7 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
+  const [view, setView] = useState<View>('active')
   const [page, setPage] = useState(0)
   const [reloadKey, setReloadKey] = useState(0)
   const [title, setTitle] = useState('')
@@ -105,7 +115,7 @@ export default function App() {
   // cannot overwrite a newer one.
   useEffect(() => {
     const controller = new AbortController()
-    call<Page>(pageUrl(search, status, page), { signal: controller.signal })
+    call<Page>(pageUrl(search, status, page, view), { signal: controller.signal })
       .then((result) => {
         setData(result)
         setError(null)
@@ -116,7 +126,7 @@ export default function App() {
         }
       })
     return () => controller.abort()
-  }, [search, status, page, reloadKey])
+  }, [search, status, page, view, reloadKey])
 
   async function mutate(action: () => Promise<void>) {
     setBusy(true)
@@ -152,6 +162,7 @@ export default function App() {
       }
       const result = (await response.json()) as { imported: number }
       setNotice(`Imported ${result.imported} ${result.imported === 1 ? 'task' : 'tasks'}.`)
+      setView('active')
       setPage(0)
       reload()
     } catch (cause) {
@@ -168,7 +179,12 @@ export default function App() {
   }
 
   function exportHref() {
-    return `/api/tasks/export?${new URLSearchParams({ q: search, status }).toString()}`
+    const params = new URLSearchParams({
+      q: search,
+      status,
+      archived: String(view === 'archived'),
+    })
+    return `/api/tasks/export?${params.toString()}`
   }
 
   function reload() {
@@ -185,6 +201,13 @@ export default function App() {
     setPage(0)
   }
 
+  function changeView(next: View) {
+    setView(next)
+    setPage(0)
+    setEditing(null)
+    setNotice(null)
+  }
+
   function add(event: FormEvent) {
     event.preventDefault()
     void mutate(async () => {
@@ -194,6 +217,7 @@ export default function App() {
       })
       setTitle('')
       setDueDate('')
+      setView('active')
       setPage(0)
       reload()
     })
@@ -235,14 +259,28 @@ export default function App() {
     })
   }
 
-  function remove(task: Task) {
+  /** The row leaves the current view, so step back a page when it was the last one. */
+  function stepBackIfLast() {
+    if (data.content.length === 1 && page > 0) {
+      setPage((current) => current - 1)
+    } else {
+      reload()
+    }
+  }
+
+  function archive(task: Task) {
     void mutate(async () => {
       await call<void>(`/api/tasks/${task.id}`, { method: 'DELETE' })
-      if (data.content.length === 1 && page > 0) {
-        setPage((current) => current - 1)
-      } else {
-        reload()
-      }
+      setNotice(`Archived "${task.title}". Switch to Archived to restore it.`)
+      stepBackIfLast()
+    })
+  }
+
+  function restore(task: Task) {
+    void mutate(async () => {
+      await call<Task>(`/api/tasks/${task.id}/restore`, { method: 'POST' })
+      setNotice(`Restored "${task.title}". Switch to Active to see it.`)
+      stepBackIfLast()
     })
   }
 
@@ -252,7 +290,7 @@ export default function App() {
     <div className="app">
       <header>
         <h1>Tasks</h1>
-        <p>No auth by design. Search, status filter and paging are server-side.</p>
+        <p>No auth by design. Search, status filter and paging are server-side. Deleting archives a task; nothing is lost.</p>
       </header>
 
       <form className="add" onSubmit={add}>
@@ -286,6 +324,22 @@ export default function App() {
           <option value="">All statuses</option>
           {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
         </select>
+        <div className="segmented" role="group" aria-label="Show active or archived tasks">
+          <button
+            type="button"
+            aria-pressed={view === 'active'}
+            onClick={() => changeView('active')}
+          >
+            Active
+          </button>
+          <button
+            type="button"
+            aria-pressed={view === 'archived'}
+            onClick={() => changeView('archived')}
+          >
+            Archived
+          </button>
+        </div>
       </div>
 
       <div className="toolbar">
@@ -353,10 +407,18 @@ export default function App() {
                 <td><span className={`status ${task.status.toLowerCase()}`}>{task.status}</span></td>
                 <td>{task.dueDate ?? '—'}</td>
                 <td className="actions">
-                  <button type="button" onClick={() => setEditing(task)}>Edit</button>
-                  <button type="button" className="danger" disabled={busy} onClick={() => remove(task)}>
-                    Delete
-                  </button>
+                  {view === 'active' ? (
+                    <>
+                      <button type="button" onClick={() => setEditing(task)}>Edit</button>
+                      <button type="button" disabled={busy} onClick={() => archive(task)}>
+                        Archive
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" disabled={busy} onClick={() => restore(task)}>
+                      Restore
+                    </button>
+                  )}
                 </td>
               </tr>
             )
@@ -364,7 +426,11 @@ export default function App() {
           {data.content.length === 0 ? (
             <tr>
               <td colSpan={4} className="empty">
-                {search !== '' || status !== '' ? 'No tasks match those filters.' : 'No tasks yet.'}
+                {search !== '' || status !== ''
+                  ? 'No tasks match those filters.'
+                  : view === 'archived'
+                    ? 'Nothing archived.'
+                    : 'No tasks yet.'}
               </td>
             </tr>
           ) : null}

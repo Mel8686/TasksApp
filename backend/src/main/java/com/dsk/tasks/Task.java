@@ -34,6 +34,10 @@ public class Task {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
+    /** Null while the task is active; set to the moment it was archived. */
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -72,6 +76,19 @@ public class Task {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public Instant getArchivedAt() {
+        return archivedAt;
+    }
+
+    /** Soft delete. The row stays; every read outside the archive ignores it. */
+    public void archive() {
+        this.archivedAt = Instant.now();
+    }
+
+    public void restore() {
+        this.archivedAt = null;
     }
 
     public long getVersion() {

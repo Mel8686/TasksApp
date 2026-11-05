@@ -54,16 +54,14 @@ public class TaskController {
     public PageResponse<Task> list(
             @RequestParam(defaultValue = "") @Size(max = 100, message = "q must be at most 100 characters") String q,
             @RequestParam(required = false) TaskStatus status,
+            @RequestParam(defaultValue = "false") boolean archived,
             @RequestParam(defaultValue = "0") @Min(value = 0, message = "page must not be negative")
             @Max(value = 10_000, message = "page must be at most 10000") int page,
             @RequestParam(defaultValue = "5") @Min(value = 1, message = "size must be at least 1")
             @Max(value = 50, message = "size must be at most 50") int size) {
 
         PageRequest request = PageRequest.of(page, size, NEWEST_FIRST);
-        Specification<Task> filter = filter(q, status);
-        return PageResponse.of(filter == null
-                ? tasks.findAll(request)
-                : tasks.findAll(filter, request));
+        return PageResponse.of(tasks.findAll(filter(q, status, archived), request));
     }
 
     /**
@@ -76,18 +74,19 @@ public class TaskController {
     public void export(
             @RequestParam(defaultValue = "") @Size(max = 100, message = "q must be at most 100 characters") String q,
             @RequestParam(required = false) TaskStatus status,
+            @RequestParam(defaultValue = "false") boolean archived,
             HttpServletResponse response) throws IOException {
 
-        Specification<Task> filter = filter(q, status);
+        Specification<Task> filter = filter(q, status, archived);
 
         response.setContentType("text/csv;charset=UTF-8");
         response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"tasks.csv\"");
 
         Writer out = response.getWriter();
-        out.write("id,title,status,dueDate,createdAt\r\n");
+        out.write("id,title,status,dueDate,createdAt,archivedAt\r\n");
         for (int page = 0; ; page++) {
             PageRequest batch = PageRequest.of(page, EXPORT_BATCH, NEWEST_FIRST);
-            List<Task> rows = (filter == null ? tasks.findAll(batch) : tasks.findAll(filter, batch)).getContent();
+            List<Task> rows = tasks.findAll(filter, batch).getContent();
             for (Task task : rows) {
                 out.write(task.getId().toString());
                 out.write(',');
@@ -98,6 +97,8 @@ public class TaskController {
                 out.write(task.getDueDate() == null ? "" : task.getDueDate().toString());
                 out.write(',');
                 out.write(task.getCreatedAt().toString());
+                out.write(',');
+                out.write(task.getArchivedAt() == null ? "" : task.getArchivedAt().toString());
                 out.write("\r\n");
             }
             if (rows.size() < EXPORT_BATCH) {
@@ -118,9 +119,10 @@ public class TaskController {
         return new ImportResult(imports.importCsv(file.getBytes()));
     }
 
+    /** Archived rows are invisible here: they only exist behind {@code ?archived=true}. */
     @GetMapping("/{id}")
     public ResponseEntity<Task> get(@PathVariable Long id) {
-        return withVersion(tasks.findById(id).orElseThrow(() -> notFound(id)));
+        return withVersion(tasks.findByIdAndArchivedAtIsNull(id).orElseThrow(() -> notFound(id)));
     }
 
     @PostMapping
@@ -145,8 +147,8 @@ public class TaskController {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             @Valid @RequestBody TaskRequest changes) {
 
-        // Existence first: a missing id is a 404 whatever the header says.
-        Task task = tasks.findById(id).orElseThrow(() -> notFound(id));
+        // Existence first: a missing or archived id is a 404 whatever the header says.
+        Task task = tasks.findByIdAndArchivedAtIsNull(id).orElseThrow(() -> notFound(id));
         Long expected = parseIfMatch(ifMatch);
 
         if (expected != null && expected != task.getVersion()) {
@@ -161,17 +163,34 @@ public class TaskController {
         return withVersion(tasks.save(task));
     }
 
+    /**
+     * Soft delete: the row stays and moves to the archive. Idempotent in the
+     * weak sense that archiving twice returns 404, not a second archive.
+     */
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
-        if (!tasks.existsById(id)) {
-            throw notFound(id);
-        }
-        tasks.deleteById(id);
+        Task task = tasks.findByIdAndArchivedAtIsNull(id).orElseThrow(() -> notFound(id));
+        task.archive();
+        tasks.save(task);
     }
 
-    private static Specification<Task> filter(String q, TaskStatus status) {
+    /** Bring an archived task back. 409 when the row is already active. */
+    @PostMapping("/{id}/restore")
+    public ResponseEntity<Task> restore(@PathVariable Long id) {
+        Task task = tasks.findById(id).orElseThrow(() -> notFound(id));
+        if (task.getArchivedAt() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task " + id + " is not archived");
+        }
+        task.restore();
+        return withVersion(tasks.save(task));
+    }
+
+    private static Specification<Task> filter(String q, TaskStatus status, boolean archived) {
         List<Specification<Task>> filters = new ArrayList<>();
+        filters.add((root, query, cb) -> archived
+                ? cb.isNotNull(root.get("archivedAt"))
+                : cb.isNull(root.get("archivedAt")));
         String term = q.strip();
         if (!term.isEmpty()) {
             String pattern = likePattern(term);

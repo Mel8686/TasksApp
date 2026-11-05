@@ -71,7 +71,6 @@ td input, td select { width: 100%; }
 
 .actions { display: flex; gap: 0.4rem; justify-content: flex-end; }
 .actions button { padding: 0.3rem 0.6rem; }
-.danger { color: var(--danger); border-color: #fecaca; }
 
 .status {
   display: inline-block;
@@ -88,8 +87,24 @@ td input, td select { width: 100%; }
 .error { color: var(--danger); background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0; }
 .editing { background: #f8fafc; }
 
-.filters { display: flex; gap: 0.5rem; }
-.filters input { flex: 1; }
+.filters { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.filters input { flex: 1; min-width: 10rem; }
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  overflow: hidden;
+}
+.segmented button {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+}
+.segmented button + button { border-left: 1px solid var(--line); }
+.segmented button[aria-pressed="true"] { background: var(--accent); color: white; }
 
 .pager {
   display: flex;
