@@ -22,6 +22,12 @@ itself.
 
 ## `vercel-react-best-practices`
 
+**What it had to work with:** one screen. `App.tsx` is 588 lines holding 5
+components, 3 effects and 22 `useState`; no router, no context, no client cache,
+two source files, 5 rows per page by default and a hard cap of 50. Read all of
+this section as evidence about a skill with almost no surface here, not as a
+verdict on the skill.
+
 | Date | Feature | Caught | Missed | Cost |
 |---|---|---|---|---|
 | 2026-11-03 | search + paging | nothing new; aborting superseded fetches and debounce are rules it endorses | nothing | one skill read |
@@ -83,19 +89,14 @@ anything was planted.
 | filter per keystroke, no deferral | `rerender-use-deferred-value` | named `useDeferredValue` |
 | **Score** | **6/6** | **5/6** |
 
-- **Against the pre-registered rule, the skill detects what it documents** — 6/6.
-  It is accurate and complete on its own headline rules.
-- **It is not separable from a baseline reviewer at this size.** Five of six were
-  found with no skill and no rule list. What the skill added was a canonical id
-  per finding, impact-ranked ordering, and keeping the `{len && …}` case in scope
-  as a rendering defect instead of dismissing it as style. 17 findings with the
-  skill, 20 without, and no false positives in either arm.
-- **Decoy B was contaminated.** `rerender-split-combined-hooks` genuinely applies
-  to the combined `useMemo`, so "split it into two" is a correct finding, not a
-  false positive. Only the lazy-init decoy survives as a decoy. That is a flaw in
-  the fixture, not in either reviewer.
-- **What this does not show:** that the app gets faster. Detection is not efficacy,
-  and n = 6. The open question is now Test B, not "is it accurate".
+- **6/6**, against a pre-registered threshold of ≥ 5/6: it finds its own headline
+  rules. 17 findings with the skill, 20 without, and no false positives either way.
+- **Not separable at this size.** The baseline found five of six with no rule
+  list. What the skill added was an id per finding, impact order, and keeping
+  `{len && …}` in scope as a rendering defect rather than dismissing it as style.
+- **Fixture flaw:** decoy B was contaminated — `rerender-split-combined-hooks`
+  genuinely applies to the combined `useMemo`, so that finding was correct, not a
+  false positive. Only the lazy-init decoy survived as a decoy.
 
 ### Pre-registered: Test B, a fixture the rules do not agree with instinct
 
@@ -158,32 +159,37 @@ was told anything was planted. `✓` = both reviewers named it at the right line
 | 6 | `await` before the cheap guard | ✓ (both, by rule id) | ✓ (both) |
 | **Score** | | **6/6 stable** | **5/6 stable** |
 
-- **Against the pre-registered rule: not separable.** The threshold was skill
-  ≥ 5/6 *and* baseline ≤ 3/6. The baseline found five of the six, on its own,
-  including every item the fixture was built to make counterintuitive. The
-  prediction behind Test B — that these patterns would beat a good reviewer's
-  instincts — was wrong. Stop trying to separate recall this way.
-- **One item separated, and it is the interesting one.** No baseline reviewer
-  proposed `useTransition` for the pending flag; both skill reviewers did. The
-  baselines did not ignore the code — they answered it with a *different,
-  also-correct* finding (no debounce, no abort, out-of-order responses), which
-  is what their vocabulary covers. The skill's contribution here is a named
-  alternative for "show pending while awaiting", not detection of a bug.
-- **What the skill did that the baseline did not:** supplied a rule id and an
-  impact rank for 6/6, and kept the same finding set in a stable order. Both
-  arms produced 18 findings. No false positives in either arm, and the baseline
-  arm found two genuine flaws in the fixture itself.
-- **Two fixture flaws, disclosed:** `board.ts` types `searchTasks` as `Task[]`
-  while this repo's endpoint returns `PageResponse` (flagged by B2, a real
-  inconsistency, not a planted item); and `visible` falls back to all tasks when
-  a filter legitimately returns 0 rows (flagged by B1). Neither affects scoring.
-  One inaccuracy: B2 said `setSearching(false)` after unmount warns — React 18
-  removed that warning.
-- **The honest summary of both tests:** the skill is accurate, complete on its
-  own rules, and a good naming/ranking layer. It has not been shown to *find
-  more* than a strong reviewer without it, on either fixture. Its remaining
-  plausible value is consistency and vocabulary, which this evidence supports,
-  and speed, which was not measured.
+- **Not separable, and the pre-registered hypothesis failed.** The threshold was
+  skill ≥ 5/6 *and* baseline ≤ 3/6. The baseline found five of six, including
+  every item built to be counterintuitive: a competent reviewer already knows
+  these rules. Stop trying to separate recall this way.
+- **One item separated.** No baseline reviewer proposed `useTransition` for the
+  pending flag; both skill reviewers did. But the baselines had answered that same
+  code with a different, also-correct finding (no debounce, no abort, out-of-order
+  responses). That is vocabulary, not detection.
+- **Fixture flaws, disclosed.** `searchTasks` is typed `Task[]` where this API
+  returns `PageResponse`, and `visible` falls back to all rows when a filter
+  legitimately returns 0 — both found by baseline reviewers, neither a planted
+  item. One inaccuracy the other way: `setSearching(false)` after unmount no
+  longer warns in React 18.
+
+### What the two tests say, together
+
+- **Accurate, twice.** Both fixtures: its own rules found, right ids, sane order,
+  no false positives in any arm. That claim is settled.
+- **Not separable from a strong reviewer, twice.** Test B existed to break the tie
+  and did not. Its visible value is naming and ranking, not finding more.
+- **The likely reason is scope, not the skill.** This frontend is too simple for a
+  performance skill to have room: one screen, 5 components, 3 effects, no router,
+  no client cache, no memoisation pressure, ≤ 50 rows, two source files. The skill
+  is written for a frontend with waterfalls, long lists, expensive renders and a
+  bundle worth splitting — an app this one is not.
+- **That bounds the evidence; it is not a point for the skill.** It also means
+  nothing here argues against keeping it. The honest state is *unproven*: to move
+  off it, the frontend would need a screen where performance is measurable, which
+  is a bigger feature than any this repo has agreed to.
+- **Still unmeasured:** whether the app gets faster. Detection is not efficacy,
+  and neither fixture is this app.
 
 ## Running tally
 
@@ -195,8 +201,7 @@ was told anything was planted. `✓` = both reviewers named it at the right line
   ↔ HTTP precondition, React state ↔ fetch lifecycle), on a whole feature the
   vocabulary predates (soft delete), and on lifecycle rules that span a page or a
   view — selection, find-or-create, batch partial failure.
-- `vercel-react-best-practices` recall test A: 6/6 planted violations named with the
-  skill, 5/6 without. Test B (harder fixture, 2 blind reviewers per arm): 6/6
-  stable with, 5/6 stable without. Accurate on its own rules; **still not
-  separable from a baseline reviewer**, and Test B falsified the hypothesis that
-  counterintuitive rules would separate them. Efficacy still unmeasured.
+- `vercel-react-best-practices`: accurate twice (6/6 in both fixtures), separable
+  neither time (5/6 without it in both). 0 defects caught across six features, 1
+  defensive rule declined. Most likely bound by how little this frontend does,
+  which makes it unproven here rather than wrong.
