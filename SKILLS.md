@@ -142,6 +142,49 @@ Decision, fixed before the run:
 The 6/6 from Test A stands as written. Test B does not replace it; it tests
 whether that number came from the skill or from the reviewer.
 
+### Result (2026-11-10)
+
+Four reviews ran blind, two per arm, parallel, same prompt within an arm. Neither
+was told anything was planted. `✓` = both reviewers named it at the right line;
+`~/–` = one / none.
+
+| # | Planted | With the skill | Without |
+|---|---|---|---|
+| 1 | count in state + effect | ✓ (both, by rule id) | ✓ (both) |
+| 2 | `filters` object in deps | ✓ (both, by rule id) | ✓ (both) |
+| 3 | manual `searching` boolean | ✓ (both: `useTransition`) | ~/– (neither) |
+| 4 | `mousemove` → `setState` | ✓ (both, by rule id) | ✓ (both) |
+| 5 | `memo` + `tags = []` default | ✓ (both, by rule id) | ✓ (both) |
+| 6 | `await` before the cheap guard | ✓ (both, by rule id) | ✓ (both) |
+| **Score** | | **6/6 stable** | **5/6 stable** |
+
+- **Against the pre-registered rule: not separable.** The threshold was skill
+  ≥ 5/6 *and* baseline ≤ 3/6. The baseline found five of the six, on its own,
+  including every item the fixture was built to make counterintuitive. The
+  prediction behind Test B — that these patterns would beat a good reviewer's
+  instincts — was wrong. Stop trying to separate recall this way.
+- **One item separated, and it is the interesting one.** No baseline reviewer
+  proposed `useTransition` for the pending flag; both skill reviewers did. The
+  baselines did not ignore the code — they answered it with a *different,
+  also-correct* finding (no debounce, no abort, out-of-order responses), which
+  is what their vocabulary covers. The skill's contribution here is a named
+  alternative for "show pending while awaiting", not detection of a bug.
+- **What the skill did that the baseline did not:** supplied a rule id and an
+  impact rank for 6/6, and kept the same finding set in a stable order. Both
+  arms produced 18 findings. No false positives in either arm, and the baseline
+  arm found two genuine flaws in the fixture itself.
+- **Two fixture flaws, disclosed:** `board.ts` types `searchTasks` as `Task[]`
+  while this repo's endpoint returns `PageResponse` (flagged by B2, a real
+  inconsistency, not a planted item); and `visible` falls back to all tasks when
+  a filter legitimately returns 0 rows (flagged by B1). Neither affects scoring.
+  One inaccuracy: B2 said `setSearching(false)` after unmount warns — React 18
+  removed that warning.
+- **The honest summary of both tests:** the skill is accurate, complete on its
+  own rules, and a good naming/ranking layer. It has not been shown to *find
+  more* than a strong reviewer without it, on either fixture. Its remaining
+  plausible value is consistency and vocabulary, which this evidence supports,
+  and speed, which was not measured.
+
 ## Running tally
 
 - 6 features, 6 security passes, 2 Low + 1 Info findings, all fixed, 0 false positives.
@@ -152,6 +195,8 @@ whether that number came from the skill or from the reviewer.
   ↔ HTTP precondition, React state ↔ fetch lifecycle), on a whole feature the
   vocabulary predates (soft delete), and on lifecycle rules that span a page or a
   view — selection, find-or-create, batch partial failure.
-- `vercel-react-best-practices` recall test: 6/6 planted violations named with the
-  skill, 5/6 without. Accurate, and not separable from a baseline reviewer at
-  n = 6. Efficacy still unmeasured.
+- `vercel-react-best-practices` recall test A: 6/6 planted violations named with the
+  skill, 5/6 without. Test B (harder fixture, 2 blind reviewers per arm): 6/6
+  stable with, 5/6 stable without. Accurate on its own rules; **still not
+  separable from a baseline reviewer**, and Test B falsified the hypothesis that
+  counterintuitive rules would separate them. Efficacy still unmeasured.
