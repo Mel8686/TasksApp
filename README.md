@@ -71,18 +71,24 @@ no frontend tests · no CI · no rate limiting · no OpenAPI. Scope cuts, not ga
 
 ## Skills
 
-Three skills are vendored under `.opencode/skills/`. The last two columns are the
-evidence record for whether they earn their place; the raw per-feature log behind
-them is `SKILLS.md`.
+Three, vendored under `.opencode/skills/` as reviewed, pinned copies — nothing is
+fetched at run time, and no skill runs a script here.
 
-| Skill | Why this one | Key moves | Invoked | Without it | Evidence so far |
-|---|---|---|---|---|---|
-| `java-springboot`<br>GitHub, MIT | Written for an **existing** Boot 3/4 app, and names the Boot 3 vs 4 deltas this repo straddles | Detect versions → route to one of five references → rules for DTOs, `ProblemDetail`, pagination, test slices | Before any backend edit, via `backend/AGENTS.md` | v0 shipped entity-as-payload (F-03), free-text status (F-04), `204` on a missing id (F-05) | Silent on JPA 4's `findAll(null)` (F-11) and on advice ordering (F-12); both found by running the app |
-| `vercel-react-best-practices`<br>Vercel, MIT | Vendor-authored, 70 impact-ranked rules; the SPA subset applies | Eight categories, each with a wrong/right pair: waterfalls, bundle, fetch, re-render | Before any frontend edit, via `frontend/AGENTS.md` | No observed defect; honoured aborting stale searches, debounce, functional `setState`, ternary over `&&` | Nothing attributable — `App.tsx` is too small for its perf rules, and it has no rule about that |
-| `owasp-security`<br>MIT, Top 10:2025 + ASVS 5.0 | The only one that is a **review procedure** (5 steps, triage rubric, report format), not a rule list | Map entry points → load needed refs → sweep checklist → triage → report severity, path, confidence | After the last edit, over the changed files, via `## Security` in both `AGENTS.md` files | Two defects would have shipped: an unbounded `page` (deep `OFFSET`), and an export that claimed to stream but loaded every row | 3 passes, 2 Low findings, both fixed, 0 false positives; nothing enforces the trigger |
+| Skill | Source / Popularity status | Why it's essential | Invoked | Evidence so far |
+|---|---|---|---|---|
+| `vercel-react-best-practices` | Vercel Labs, first-party (`vercel-labs/agent-skills`). **Industry standard.** ~685k installs, 30k+★; the next React-guidance skill trails at ~13k | Agents default to `useEffect` data fetching and re-render churn; this injects constraints before the first hook is written — waterfall diagnosis, lazy-loading, memo boundaries | Before any frontend edit, via `frontend/AGENTS.md` | Nothing attributable yet — `App.tsx` is too small for its perf rules, and it has no rule for the bug class that bit: state across a view switch |
+| `java-springboot` | Third-party, unaffiliated with Spring. **Fragmented field.** No first-party Spring skill exists; **not** the `awesome-copilot` file of the same name (~20k) | Stops the agent reaching for a deprecated dependency, hand-wired XML, or a Java 8-era answer, and forces Boot 4 idioms instead: `ProblemDetail`, virtual threads, AOT | Before any backend edit, via `backend/AGENTS.md` | Without it, v0 shipped entity-as-payload, free-text status, and a `204` on a miss (F-03–F-05). Silent on `findAll(null)` (F-11) and advice ordering (F-12) |
+| `owasp-security` | Third-party, a single 14KB file. **Unverified** — no author or licence in the copy; OWASP-derived, not OWASP-published | Flips the pass into an audit before handoff: map entry points, sweep OWASP Top 10:2025 + ASVS 5.0, triage by severity, report path and confidence | After the last edit, over the changed files, via `## Security` in both `AGENTS.md` files | 3 passes, 2 Low findings, both fixed, 0 false positives. Caught an unbounded `page` (deep `OFFSET`) and an export that claimed to stream but loaded every row |
 
-Frontend and backend skills are read before coding; security runs after, as its own
-pass. Nothing runs on `git commit` — the only gates are the two commands above.
+**Rejected:** `awesome-copilot`'s `java-springboot` — same name, not the same file
+(~850 tokens, no code) · Jeffallan's Spring/React pair — layer-by-layer DTO and
+Next.js/RSC assumptions · rrezart's narrow set — closest fit, but 3–5 skills from a
+single maintainer · `react-doctor` — a CLI gate that needs a dependency.
+
+**Known gaps:** no skill here covers `If-Match`/`ETag` preconditions or soft-delete
+retention; both were written from scratch. Nothing enforces the trigger either — the
+rule lists are read because `AGENTS.md` says so, and the only gates are the two commands
+above. Per-feature evidence: `SKILLS.md`. Build history: `FRICTION.md`.
 
 ## Layout
 
