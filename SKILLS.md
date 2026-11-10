@@ -42,6 +42,61 @@ itself.
 | 2026-11-10 | tags | A09: the new rejections were `ResponseStatusException`, which returned the right status through the catch-all but wrote no log line — against the handler's own stated contract. Fixed with one handler that covers every hand-raised 4xx. Then confirmed the CSV formula guard still holds for the joined `tags` cell (only the cell's first character is dangerous, and the cell is neutralized as a whole) and that tag names reach only parameterized queries and React text nodes | no rule for the unique-constraint race in find-or-create: a duplicate insert is a 500 with a generic message and an `errorId`, i.e. fail-closed but not prevented. Found while writing, not from the checklist | 1 pass, 2 probes (`ids:[null]`, a `|` in a tag), 1 Info fixed |
 | 2026-11-10 | bulk actions | confirmed the new input class is bounded at the boundary (`ids` non-empty, ≤ 100, no nulls) and that nothing client-controlled is mapped beyond `ids`/`operation`/`status` — no mass assignment of `version` or `archivedAt`. Verified a failed id rolls the whole batch back and leaves the rows untouched | no opinion on dropping `If-Match` for a batch (A06/A08): a documented design decision, and with no auth there is no boundary to cross; it also has nothing on partial-failure semantics, because batch writes are not in its vocabulary | 1 pass, 3 probes (stale `If-Match`, missing id, `ids:[null]`), 0 findings |
 
+## Pre-registered: is `vercel-react-best-practices` useful for what it claims?
+
+The claim is detection and guidance, not good prose. Six violations of its *own*
+headline rules sit in `frontend`-shaped code kept outside the repo
+(`%TEMP%/opencode/perf-test/`), plus two correct patterns as decoys. Two blind
+reviews score the same files: one with the skill loaded, one without. Neither
+reviewer is told that anything is planted.
+
+| Planted | Expected rule (either accepted) |
+|---|---|
+| two independent `await`s in sequence | `async-parallel` |
+| import from a barrel `index.ts` | `bundle-barrel-imports` |
+| component declared inside a component | `rerender-no-inline-components` |
+| `{items.length && <Table/>}` | `rendering-conditional-render` |
+| `find()` inside `map()` over the same list | `js-index-maps` / `js-set-map-lookups` |
+| 50-row filter recomputed per keystroke, no deferral | `rerender-use-deferred-value` / `rerender-transitions` |
+
+Decoys — a finding here is a false positive: `useState(() => new Set())` is the
+correct lazy init; the `useMemo` around the derived rows is what the skill asks
+for, not a smell.
+
+Decision, fixed before the run: **≥ 5/6** named → it detects what it documents;
+**3–4** → partial; **≤ 2** → it does not deliver its claim on this codebase.
+Recall is detection only: it says nothing about whether the app got faster, which
+is the separate, heavier measurement, not attempted here.
+
+### Result (2026-11-10)
+
+Both reviews ran blind and in parallel over the same six files. Neither was told
+anything was planted.
+
+| Planted | With the skill | Without it |
+|---|---|---|
+| two sequential independent `await`s | `async-parallel` | named, no rule id |
+| import from the barrel | `bundle-barrel-imports` | named |
+| component declared inside a component | `rerender-no-inline-components`, both nesting levels | named, both levels |
+| `{rows.length && <Table/>}` | `rendering-conditional-render` | named only as "correctness, not performance"; not listed as a finding |
+| `find()` inside `map()` | `js-index-maps` | named |
+| filter per keystroke, no deferral | `rerender-use-deferred-value` | named `useDeferredValue` |
+| **Score** | **6/6** | **5/6** |
+
+- **Against the pre-registered rule, the skill detects what it documents** — 6/6.
+  It is accurate and complete on its own headline rules.
+- **It is not separable from a baseline reviewer at this size.** Five of six were
+  found with no skill and no rule list. What the skill added was a canonical id
+  per finding, impact-ranked ordering, and keeping the `{len && …}` case in scope
+  as a rendering defect instead of dismissing it as style. 17 findings with the
+  skill, 20 without, and no false positives in either arm.
+- **Decoy B was contaminated.** `rerender-split-combined-hooks` genuinely applies
+  to the combined `useMemo`, so "split it into two" is a correct finding, not a
+  false positive. Only the lazy-init decoy survives as a decoy. That is a flaw in
+  the fixture, not in either reviewer.
+- **What this does not show:** that the app gets faster. Detection is not efficacy,
+  and n = 6. The open question is now Test B, not "is it accurate".
+
 ## Running tally
 
 - 6 features, 6 security passes, 2 Low + 1 Info findings, all fixed, 0 false positives.
@@ -52,3 +107,6 @@ itself.
   ↔ HTTP precondition, React state ↔ fetch lifecycle), on a whole feature the
   vocabulary predates (soft delete), and on lifecycle rules that span a page or a
   view — selection, find-or-create, batch partial failure.
+- `vercel-react-best-practices` recall test: 6/6 planted violations named with the
+  skill, 5/6 without. Accurate, and not separable from a baseline reviewer at
+  n = 6. Efficacy still unmeasured.
