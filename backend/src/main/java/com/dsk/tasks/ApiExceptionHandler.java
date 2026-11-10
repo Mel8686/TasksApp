@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -116,6 +117,20 @@ public class ApiExceptionHandler {
         log.warn("Rejected upload: multipart limit exceeded");
         return ProblemDetail.forStatusAndDetail(
                 HttpStatus.PAYLOAD_TOO_LARGE, "Uploaded file is too large");
+    }
+
+    /**
+     * The status-coded rejections we raise on purpose (404, 409, 428, 400).
+     * Without this they fell through to the catch-all below, which returned the
+     * right status but logged nothing — the one place the class contract above
+     * was not kept.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    ProblemDetail onResponseStatus(ResponseStatusException ex) {
+        log.warn("Rejected request: status={} reason={}",
+                ex.getStatusCode().value(), ex.getReason());
+        return ProblemDetail.forStatusAndDetail(ex.getStatusCode(),
+                ex.getReason() == null ? "Request rejected" : ex.getReason());
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

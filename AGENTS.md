@@ -23,23 +23,30 @@ happened, not from what the skill promises. The `README.md` table is the summary
 ## API contract today
 
 - `POST`/`PUT` take `TaskRequest`: `title` not blank and at most 200 chars,
-  `status` one of `TODO|DOING|DONE` (defaults to `TODO`), optional `dueDate`.
-  Violations return 400.
-- `GET /api/tasks?q=&status=&archived=&page=&size=` returns `PageResponse`
+  `status` one of `TODO|DOING|DONE` (defaults to `TODO`), optional `dueDate`, and
+  `tags` — at most 5, each ≤ 30 chars, lowercased and de-duplicated, no `|`.
+  `tags` is a full replacement: omitting it clears the tags. Violations return 400.
+- `GET /api/tasks?q=&status=&tag=&archived=&page=&size=` returns `PageResponse`
   (`content/page/size/total/totalPages`). `size` is 1–50 (default 5), `page` is
-  0–10000, `q` ≤ 100 chars, `archived` is a boolean (default false); violations
-  return 400.
+  0–10000, `q` ≤ 100 chars, `tag` ≤ 30 chars, `archived` is a boolean (default
+  false); violations return 400.
 - Every error is an RFC 9457 `ProblemDetail`; 5xx carries an `errorId` that also
-  appears in the log.
+  appears in the log, and every 4xx the API raises on purpose is logged.
 - A missing id returns 404 for `GET`, `PUT` and `DELETE`.
 - `DELETE` is a soft delete: it archives the row (204). Archived rows are 404 for
   `GET`/`PUT`/`DELETE`, and list/export exclude them unless `archived=true`.
   `POST /api/tasks/{id}/restore` returns 200, or 409 when the row is not archived;
   it needs no `If-Match` because it changes no user data.
+- `POST /api/tasks/bulk` takes `{ids, operation, status}` — `operation` is
+  `ARCHIVE|RESTORE|STATUS`, `ids` is 1–100 distinct-seeming ids, `status` is
+  required for `STATUS`. One transaction: any failing id returns 404 (archive /
+  status / unknown) or 409 (restore of an active row) and nothing is written.
+  Returns `{updated}`. It takes no `If-Match` on purpose: one stale row would
+  abort the batch, so the operation wins.
 - `GET /api/tasks/export` streams the current filter as CSV, including
-  `archivedAt`; `POST /api/tasks/import` takes a multipart `file` (≤ 1 MiB,
-  ≤ 1000 rows) and is all-or-nothing: any bad row rejects the whole batch with
-  400. Import ignores `archivedAt` and creates active rows.
+  `archivedAt` and `tags` (`a|b`); `POST /api/tasks/import` takes a multipart
+  `file` (≤ 1 MiB, ≤ 1000 rows) and is all-or-nothing: any bad row rejects the
+  whole batch with 400. Import ignores `archivedAt` and creates active rows.
 - Every task carries a `version` that increments on each write. `GET
   /api/tasks/{id}` and `PUT /api/tasks/{id}` expose it as a quoted `ETag`.
 - `PUT` requires `If-Match`. A stale version returns 412 with the current row as
@@ -48,7 +55,7 @@ happened, not from what the skill promises. The `README.md` table is the summary
 
 Backend is still ahead of the frontend in one place: there is no DTO layer, so
 the `Task` type is hand-copied from `Task.java`. Fix it when a feature needs it,
-not before.
+not before. Use cases live in `TaskService`; the controller keeps HTTP only.
 
 ## Scope
 

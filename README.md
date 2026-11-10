@@ -28,12 +28,13 @@ fallbacks in `application.properties`. No `.env`, no secrets in the repo.
 
 | Endpoint | Notes |
 |---|---|
-| `GET /api/tasks?q=&status=&archived=&page=&size=` | paged list, `PageResponse` |
+| `GET /api/tasks?q=&status=&tag=&archived=&page=&size=` | paged list, `PageResponse` |
 | `POST /api/tasks` | create, `201` |
 | `GET` / `PUT /api/tasks/{id}` | read, update; `404` on a missing id |
 | `DELETE /api/tasks/{id}` | archive (soft delete), `204` |
 | `POST /api/tasks/{id}/restore` | un-archive, `200`; `409` if not archived |
-| `GET /api/tasks/export` | CSV of the current filter, with `archivedAt` |
+| `POST /api/tasks/bulk` | archive / restore / set status for 1–100 ids, one transaction |
+| `GET /api/tasks/export` | CSV of the current filter, with `archivedAt` and `tags` |
 | `POST /api/tasks/import` | multipart `file`, all-or-nothing |
 
 - `PUT` requires `If-Match: "<version>"`. Stale → `412` with the current row as
@@ -41,8 +42,9 @@ fallbacks in `application.properties`. No `.env`, no secrets in the repo.
   and `PUT` return the version as `ETag`.
 - Errors are RFC 9457 `ProblemDetail`; a 5xx carries an `errorId` that also appears
   in the log.
-- Bounds: `size` 1–50, `page` 0–10000, `q` ≤ 100, `title` ≤ 200, imports ≤ 1 MiB
-  and ≤ 1000 rows. Violations are `400`.
+- Bounds: `size` 1–50, `page` 0–10000, `q` ≤ 100, `tag` ≤ 30, `title` ≤ 200,
+  `tags` ≤ 5 × 30, bulk ≤ 100 ids, imports ≤ 1 MiB and ≤ 1000 rows. Violations are
+  `400`.
 - Archived rows are hidden from `GET`/`PUT`/`DELETE` and from list/export unless
   `archived=true`. Import always creates active rows.
 
@@ -51,7 +53,8 @@ fallbacks in `application.properties`. No `.env`, no secrets in the repo.
 `task(id, title, status, due_date, created_at, archived_at, version)`. `status` is
 `TODO|DOING|DONE`, constrained in the database. `archived_at` is the soft delete:
 null means active. `version` is the concurrency token, bumped by every write.
-Migrations `V1`–`V4` are append-only.
+`tag(id, name)` holds one row per distinct lowercase name; `task_tag(task_id,
+tag_id)` joins them. Migrations `V1`–`V5` are append-only.
 
 ## Skills
 
@@ -60,8 +63,8 @@ fetched at run time, and no skill runs a script here. Per-feature evidence: `SKI
 
 | Skill | Popularity & Why this skill? | What it does (key features) | Invoked | Evidence so far |
 |---|---|---|---|---|
-| `vercel-react-best-practices` | **The reference standard.** Vercel Labs, first-party (`vercel-labs/agent-skills`) — ~685k installs, 30k+★, the next React-guidance skill trails at ~13k. Optimises frontend performance by preventing the rendering traps, state leaks and bloated bundles typical of raw LLM code | • Eliminates async data waterfalls through component-level fetching boundaries • Fixes rendering inefficiencies — conditional UI flicker, unnecessary re-renders • Keeps bundles small: dynamic imports, barrel-file avoidance, analyzable paths | Before any frontend edit, via `frontend/AGENTS.md` | Nothing attributable yet — `App.tsx` is too small for its perf rules, and it has no rule for the bug class that bit: state across a view switch |
-| `java-springboot` | **Enterprise Open Baseline.** Community-backed Spring setups (MIT licensed), used as baseline architecture instructions across automated Java pipelines. Prevents architectural decay: stops an LLM leaking business logic into the web layer, or reaching for a deprecated dependency | • Pushes logic out of controllers — services own the transaction • Protects persistence: transaction boundaries, lazy-loading and N+1 traps • Routes to one of five references instead of one wall of rules | Before any backend edit, via `backend/AGENTS.md` | Without it, v0 shipped entity-as-payload, free-text status, and a `204` on a miss (F-03–F-05). Silent on `findAll(null)` (F-11) and advice ordering (F-12) |
-| `owasp-security` | **The Global Enterprise Mandate.** Aligned with the OWASP Agentic Skills Top 10 (AST10) and maintained under the official OWASP Foundation repository. Turns a code pass into a defensive audit, catching vulnerabilities before the files hit a repository scanner | • Hardens surfaces against injection and broken access control (A05, A01 — BOLA included) • Five steps: entry points → references → checklist → triage → report • Reports severity, path and confidence | After the last edit, over the changed files, via `## Security` in both `AGENTS.md` files | 3 passes, 2 Low findings, both fixed, 0 false positives. Caught an unbounded `page` (deep `OFFSET`) and an export that claimed to stream but loaded every row |
+| `vercel-react-best-practices` | **The reference standard.** Vercel Labs, first-party (`vercel-labs/agent-skills`) — ~685k installs, 30k+★, the next React-guidance skill trails at ~13k. Optimises frontend performance by preventing the rendering traps, state leaks and bloated bundles typical of raw LLM code | • Eliminates async data waterfalls through component-level fetching boundaries • Fixes rendering inefficiencies — conditional UI flicker, unnecessary re-renders • Keeps bundles small: dynamic imports, barrel-file avoidance, analyzable paths | Before any frontend edit, via `frontend/AGENTS.md` | 6 features, 0 defects caught. It endorses what we already do — abort + debounce, derived state, a `Set` for selection — and has had no rule for either bug that bit: state across a view switch, and a selection outliving its page. Its one live contribution was negative: `rerender-simple-expression-in-memo` stopped us memoising a five-row table |
+| `java-springboot` | **Enterprise Open Baseline.** Community-backed Spring setups (MIT licensed), used as baseline architecture instructions across automated Java pipelines. Prevents architectural decay: stops an LLM leaking business logic into the web layer, or reaching for a deprecated dependency | • Pushes logic out of controllers — services own the transaction • Protects persistence: transaction boundaries, lazy-loading and N+1 traps • Routes to one of five references instead of one wall of rules | Before any backend edit, via `backend/AGENTS.md` | Without it, v0 shipped entity-as-payload, free-text status, and a `204` on a miss (F-03–F-05). One attributable win, on tags: `data.md`'s "never paginate a collection `JOIN FETCH`" is why the list uses `@BatchSize(50)` plus an explicit touch instead of `@EntityGraph` on a `Page`. It confirmed, but did not cause, the `TaskService` boundary bulk needed. Silent on `findAll(null)` (F-11), advice ordering (F-12) and the duplicate-name race in find-or-create |
+| `owasp-security` | **The Global Enterprise Mandate.** Aligned with the OWASP Agentic Skills Top 10 (AST10) and maintained under the official OWASP Foundation repository. Turns a code pass into a defensive audit, catching vulnerabilities before the files hit a repository scanner | • Hardens surfaces against injection and broken access control (A05, A01 — BOLA included) • Five steps: entry points → references → checklist → triage → report • Reports severity, path and confidence | After the last edit, over the changed files, via `## Security` in both `AGENTS.md` files | 6 passes, 2 Low + 1 Info, all fixed, 0 false positives. The last one was new code, not a legacy gap: hand-raised 4xx returned the right status and wrote no log line (A09), so every 404/409/428/400 now logs. Earlier: an unbounded `page` (deep `OFFSET`), and an export that claimed to stream but loaded every row |
 
 

@@ -5,9 +5,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -28,65 +25,63 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.io.Writer;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/tasks")
 public class TaskController {
 
-    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
     private static final int EXPORT_BATCH = 500;
 
-    private final TaskRepository tasks;
+    private final TaskService service;
     private final TaskImportService imports;
 
-    public TaskController(TaskRepository tasks, TaskImportService imports) {
-        this.tasks = tasks;
+    public TaskController(TaskService service, TaskImportService imports) {
+        this.service = service;
         this.imports = imports;
     }
 
     public record ImportResult(int imported) {
     }
 
+    public record BulkResult(int updated) {
+    }
+
     @GetMapping
     public PageResponse<Task> list(
             @RequestParam(defaultValue = "") @Size(max = 100, message = "q must be at most 100 characters") String q,
             @RequestParam(required = false) TaskStatus status,
+            @RequestParam(defaultValue = "") @Size(max = 30, message = "tag must be at most 30 characters") String tag,
             @RequestParam(defaultValue = "false") boolean archived,
             @RequestParam(defaultValue = "0") @Min(value = 0, message = "page must not be negative")
             @Max(value = 10_000, message = "page must be at most 10000") int page,
             @RequestParam(defaultValue = "5") @Min(value = 1, message = "size must be at least 1")
             @Max(value = 50, message = "size must be at most 50") int size) {
 
-        PageRequest request = PageRequest.of(page, size, NEWEST_FIRST);
-        return PageResponse.of(tasks.findAll(filter(q, status, archived), request));
+        return PageResponse.of(service.list(page, size, q, status, tag, archived));
     }
 
     /**
      * Full extract of the current filter, not a page. Rows are fetched in
      * batches of {@value #EXPORT_BATCH} and written as they arrive, so memory
-     * stays flat while the response streams; the trade-off is one count query
-     * per batch.
+     * stays flat while the response streams.
      */
     @GetMapping(value = "/export", produces = "text/csv")
     public void export(
             @RequestParam(defaultValue = "") @Size(max = 100, message = "q must be at most 100 characters") String q,
             @RequestParam(required = false) TaskStatus status,
+            @RequestParam(defaultValue = "") @Size(max = 30, message = "tag must be at most 30 characters") String tag,
             @RequestParam(defaultValue = "false") boolean archived,
             HttpServletResponse response) throws IOException {
-
-        Specification<Task> filter = filter(q, status, archived);
 
         response.setContentType("text/csv;charset=UTF-8");
         response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"tasks.csv\"");
 
         Writer out = response.getWriter();
-        out.write("id,title,status,dueDate,createdAt,archivedAt\r\n");
+        out.write("id,title,status,dueDate,createdAt,archivedAt,tags\r\n");
         for (int page = 0; ; page++) {
-            PageRequest batch = PageRequest.of(page, EXPORT_BATCH, NEWEST_FIRST);
-            List<Task> rows = tasks.findAll(filter, batch).getContent();
+            List<Task> rows = service.batch(page, EXPORT_BATCH, q, status, tag, archived);
             for (Task task : rows) {
                 out.write(task.getId().toString());
                 out.write(',');
@@ -99,6 +94,8 @@ public class TaskController {
                 out.write(task.getCreatedAt().toString());
                 out.write(',');
                 out.write(task.getArchivedAt() == null ? "" : task.getArchivedAt().toString());
+                out.write(',');
+                out.write(Csv.escape(Csv.neutralizeFormula(tagCell(task))));
                 out.write("\r\n");
             }
             if (rows.size() < EXPORT_BATCH) {
@@ -122,17 +119,13 @@ public class TaskController {
     /** Archived rows are invisible here: they only exist behind {@code ?archived=true}. */
     @GetMapping("/{id}")
     public ResponseEntity<Task> get(@PathVariable Long id) {
-        return withVersion(tasks.findByIdAndArchivedAtIsNull(id).orElseThrow(() -> notFound(id)));
+        return withVersion(service.get(id));
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public Task create(@Valid @RequestBody TaskRequest request) {
-        Task task = new Task();
-        task.setTitle(request.title().strip());
-        task.setStatus(request.status() == null ? TaskStatus.TODO : request.status());
-        task.setDueDate(request.dueDate());
-        return tasks.save(task);
+        return service.create(request);
     }
 
     /**
@@ -147,20 +140,7 @@ public class TaskController {
             @RequestHeader(value = "If-Match", required = false) String ifMatch,
             @Valid @RequestBody TaskRequest changes) {
 
-        // Existence first: a missing or archived id is a 404 whatever the header says.
-        Task task = tasks.findByIdAndArchivedAtIsNull(id).orElseThrow(() -> notFound(id));
-        Long expected = parseIfMatch(ifMatch);
-
-        if (expected != null && expected != task.getVersion()) {
-            throw new TaskConflictException(task);
-        }
-
-        task.setTitle(changes.title().strip());
-        if (changes.status() != null) {
-            task.setStatus(changes.status());
-        }
-        task.setDueDate(changes.dueDate());
-        return withVersion(tasks.save(task));
+        return withVersion(service.update(id, parseIfMatch(ifMatch), changes));
     }
 
     /**
@@ -170,52 +150,28 @@ public class TaskController {
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
-        Task task = tasks.findByIdAndArchivedAtIsNull(id).orElseThrow(() -> notFound(id));
-        task.archive();
-        tasks.save(task);
+        service.archive(id);
     }
 
     /** Bring an archived task back. 409 when the row is already active. */
     @PostMapping("/{id}/restore")
     public ResponseEntity<Task> restore(@PathVariable Long id) {
-        Task task = tasks.findById(id).orElseThrow(() -> notFound(id));
-        if (task.getArchivedAt() == null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task " + id + " is not archived");
-        }
-        task.restore();
-        return withVersion(tasks.save(task));
+        return withVersion(service.restore(id));
     }
 
-    private static Specification<Task> filter(String q, TaskStatus status, boolean archived) {
-        List<Specification<Task>> filters = new ArrayList<>();
-        filters.add((root, query, cb) -> archived
-                ? cb.isNotNull(root.get("archivedAt"))
-                : cb.isNull(root.get("archivedAt")));
-        String term = q.strip();
-        if (!term.isEmpty()) {
-            String pattern = likePattern(term);
-            filters.add((root, query, cb) -> cb.like(cb.lower(root.get("title")), pattern, '\\'));
-        }
-        if (status != null) {
-            filters.add((root, query, cb) -> cb.equal(root.get("status"), status));
-        }
-        return filters.stream().reduce(Specification::and).orElse(null);
-    }
-
-    /**
-     * Wildcards in user input are escaped, so a search for {@code 100%} matches
-     * that text rather than every row.
-     */
-    private static String likePattern(String term) {
-        String escaped = term
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
-        return "%" + escaped.toLowerCase(Locale.ROOT) + "%";
+    /** Archive, restore or set the status of up to 100 rows in one transaction. */
+    @PostMapping("/bulk")
+    public BulkResult bulk(@Valid @RequestBody BulkRequest request) {
+        return new BulkResult(service.bulk(request));
     }
 
     private static ResponseEntity<Task> withVersion(Task task) {
         return ResponseEntity.ok().eTag("\"" + task.getVersion() + "\"").body(task);
+    }
+
+    /** Tags travel as one cell, {@code a|b}, in name order. */
+    private static String tagCell(Task task) {
+        return task.getTags().stream().map(Tag::getName).collect(Collectors.joining(TagRules.SEPARATOR));
     }
 
     /**
@@ -242,9 +198,5 @@ public class TaskController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "If-Match must be a version from GET, such as \"3\", or '*'");
         }
-    }
-
-    private static ResponseStatusException notFound(Long id) {
-        return new ResponseStatusException(HttpStatus.NOT_FOUND, "No task " + id);
     }
 }

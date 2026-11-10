@@ -17,6 +17,8 @@ itself.
 | 2026-11-03 | CSV export/import | the validation + `ProblemDetail` patterns that the import errors reuse | nothing | one reference read |
 | 2026-11-03 | optimistic concurrency | the JPA half: `@Version`, migration discipline | the HTTP half: no `ETag`/`If-Match`/412 guidance anywhere in `rest-api.md` | a missing import, one compile round |
 | 2026-11-05 | archive + restore | the write path: archive is another `@Version`-bumped save, so the restore-vs-PUT race closes itself | soft delete entirely: `data.md` has no `@SQLRestriction`, `@Where`, `@Filter`, explicit-predicate or partial-index guidance (grep: 0 matches) | one grep to prove the gap; the design (named predicate over an annotation) made unaided |
+| 2026-11-10 | tags | the shape of the read path: `data.md` says never paginate a collection `JOIN FETCH` (in-memory paging), and `open-in-view=false` means load before the method returns — so `@BatchSize(50)` plus an explicit touch, one extra query per page, instead of `@EntityGraph` with `Page` | find-or-create with a unique index: nothing says how to resolve a name to a row without a race, and two concurrent creates of the same tag are a 500 on the constraint; also nothing about validation that spans a whole collection | one `data.md` read, one compile/test round |
+| 2026-11-10 | bulk actions | confirmed the transaction boundary the feature was chosen to force: `@Transactional` on the use-case boundary, so 100 ids commit or roll back together — the gap the four archive reviewers flagged, though the plan to add a service layer predated the read | bulk semantics are all ours: all-or-nothing, per-id 404 vs 409, and dropping `If-Match` for a batch. It also says "services return DTOs", which this repo forbids, so the entities are initialized in the transaction and returned anyway | 1 service class, 0 defects, 0 queries wasted |
 
 ## `vercel-react-best-practices`
 
@@ -26,6 +28,8 @@ itself.
 | 2026-11-03 | CSV export/import | nothing | `FormData` must not be sent with a JSON content type — a real bug it has no rule for | 0 |
 | 2026-11-03 | optimistic concurrency | nothing | stale-closure capture (`const target = editing`), conflict-state branching — no rule covers either | 0 |
 | 2026-11-05 | archive + restore | nothing new; kept the abort/debounce effect and derived the view from state, no effect added | state coherence across a view switch: resetting page and closing the editor when the row set changes is not in its rules; it is a perf skill, and this was correctness | 0 |
+| 2026-11-10 | tags | endorsed reusing the debounced + aborted fetch effect for the new `tag` parameter, and `rerender-derived-state` / `rendering-conditional-render` shaped the chips and the empty state (ternaries, nothing stored twice) | chip-click-as-filter is UI state design it has no rule for; also silent that a selection must be cleared when its row leaves the view — correctness again, not performance | 0 |
+| 2026-11-10 | bulk actions | `js-set-map-lookups` (the selection is a `Set`, O(1) per row) and `rerender-functional-setstate` on every selection write, which is what keeps the page checkbox honest | the "did every selected row just leave this page?" step-back is the same bug class as archive's; no rule. And `rerender-memo` had to be declined per `rerender-simple-expression-in-memo` — the skill working as intended, by saying no | 0 |
 
 ## `owasp-security`
 
@@ -35,13 +39,16 @@ itself.
 | 2026-11-03 | CSV export/import | export claimed to stream but loaded every row (Low) | nothing | 1 pass, 0 false positives |
 | 2026-11-03 | optimistic concurrency | nothing new; confirmed strong tag comparison, 428 fail-closed, log context | `DELETE` has no `If-Match`; treated as out of scope because there is no auth boundary to cross | 1 pass, 0 false positives |
 | 2026-11-05 | archive + restore | confirmed the archive cannot leak into the default list or export, and an invalid `archived` value is a 400 `ProblemDetail` with no internals | soft delete as a retention/erasure conflict (A04/A09-adjacent): nothing says a review should ask whether "deleted" data can ever be removed; and no rule for judging a precondition-less state transition that cannot overwrite user data | 1 pass, 2 live probes (`archived=maybe`, `archived=1`), 0 findings |
+| 2026-11-10 | tags | A09: the new rejections were `ResponseStatusException`, which returned the right status through the catch-all but wrote no log line — against the handler's own stated contract. Fixed with one handler that covers every hand-raised 4xx. Then confirmed the CSV formula guard still holds for the joined `tags` cell (only the cell's first character is dangerous, and the cell is neutralized as a whole) and that tag names reach only parameterized queries and React text nodes | no rule for the unique-constraint race in find-or-create: a duplicate insert is a 500 with a generic message and an `errorId`, i.e. fail-closed but not prevented. Found while writing, not from the checklist | 1 pass, 2 probes (`ids:[null]`, a `|` in a tag), 1 Info fixed |
+| 2026-11-10 | bulk actions | confirmed the new input class is bounded at the boundary (`ids` non-empty, ≤ 100, no nulls) and that nothing client-controlled is mapped beyond `ids`/`operation`/`status` — no mass assignment of `version` or `archivedAt`. Verified a failed id rolls the whole batch back and leaves the rows untouched | no opinion on dropping `If-Match` for a batch (A06/A08): a documented design decision, and with no auth there is no boundary to cross; it also has nothing on partial-failure semantics, because batch writes are not in its vocabulary | 1 pass, 3 probes (stale `If-Match`, missing id, `ids:[null]`), 0 findings |
 
 ## Running tally
 
-- 4 features, 4 security passes, 2 Low findings, both fixed, 0 false positives.
+- 6 features, 6 security passes, 2 Low + 1 Info findings, all fixed, 0 false positives.
 - 2 defects that predate the skills and that their rules exist to prevent:
   entity-as-payload (F-03), free-text status (F-04).
-- 6 gaps recorded above. The pattern: skills are strongest on conventions they
+- 8 gaps recorded above. The pattern: skills are strongest on conventions they
   name explicitly, and silent on the seam between two technologies (JPA version
-  ↔ HTTP precondition, React state ↔ fetch lifecycle), and on a whole feature
-  the vocabulary predates (soft delete).
+  ↔ HTTP precondition, React state ↔ fetch lifecycle), on a whole feature the
+  vocabulary predates (soft delete), and on lifecycle rules that span a page or a
+  view — selection, find-or-create, batch partial failure.

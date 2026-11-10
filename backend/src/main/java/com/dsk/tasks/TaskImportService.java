@@ -7,8 +7,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 
 @Service
 public class TaskImportService {
@@ -18,9 +21,11 @@ public class TaskImportService {
     private static final int MAX_REPORTED = 20;
 
     private final TaskRepository tasks;
+    private final TagService tags;
 
-    public TaskImportService(TaskRepository tasks) {
+    public TaskImportService(TaskRepository tasks, TagService tags) {
         this.tasks = tasks;
+        this.tags = tags;
     }
 
     /**
@@ -48,6 +53,7 @@ public class TaskImportService {
         }
         int statusIndex = header.indexOf("status");
         int dueDateIndex = header.indexOf("duedate");
+        int tagsIndex = header.indexOf("tags");
 
         List<List<String>> data = rows.subList(1, rows.size());
         if (data.size() > MAX_ROWS) {
@@ -55,6 +61,8 @@ public class TaskImportService {
         }
 
         List<Task> accepted = new ArrayList<>();
+        // Kept beside `accepted` so tags can be resolved for the whole file at once.
+        List<List<String>> acceptedTags = new ArrayList<>();
         List<ImportRejectedException.Rejection> reported = new ArrayList<>();
         int rejected = 0;
 
@@ -97,8 +105,17 @@ public class TaskImportService {
                 }
             }
 
+            // archivedAt is deliberately ignored: an import creates active rows.
+            List<String> tagNames = List.of();
+            try {
+                tagNames = TagRules.normalize(TagRules.fromCell(Csv.restoreFormula(cell(row, tagsIndex))));
+            } catch (IllegalArgumentException ex) {
+                problems.add(ex.getMessage());
+            }
+
             if (problems.isEmpty()) {
                 accepted.add(task);
+                acceptedTags.add(tagNames);
             } else {
                 rejected++;
                 if (reported.size() < MAX_REPORTED) {
@@ -114,8 +131,24 @@ public class TaskImportService {
                     reported);
         }
 
+        linkTags(accepted, acceptedTags);
         tasks.saveAll(accepted);
         return accepted.size();
+    }
+
+    /** One lookup for the whole file, then the join rows fall out of the mapping. */
+    private void linkTags(List<Task> accepted, List<List<String>> acceptedTags) {
+        Set<String> names = new LinkedHashSet<>();
+        acceptedTags.forEach(names::addAll);
+        Map<String, Tag> resolved = tags.resolveAll(names);
+
+        for (int i = 0; i < accepted.size(); i++) {
+            Set<Tag> taskTags = new LinkedHashSet<>();
+            for (String name : acceptedTags.get(i)) {
+                taskTags.add(resolved.get(name));
+            }
+            accepted.get(i).setTags(taskTags);
+        }
     }
 
     private static String cell(List<String> row, int index) {

@@ -9,10 +9,14 @@ type Task = {
   createdAt: string
   archivedAt: string | null
   version: number
+  tags: string[]
 }
 
 /** Which side of the soft delete the list is showing. */
 type View = 'active' | 'archived'
+
+/** The bulk operations the server accepts, narrowed per view. */
+type Operation = 'ARCHIVE' | 'RESTORE' | 'STATUS'
 
 type Page = {
   content: Task[]
@@ -79,13 +83,26 @@ async function call<T>(url: string, init?: RequestInit): Promise<T> {
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T)
 }
 
-function pageUrl(search: string, status: string, page: number, view: View) {
-  const params = new URLSearchParams({
+/** "work, Home" -> ["work", "home"]; the server owns de-duplication and limits. */
+function splitTags(value: string): string[] {
+  return value
+    .split(',')
+    .map((name) => name.trim().toLowerCase())
+    .filter((name) => name !== '')
+}
+
+function filterParams(search: string, status: string, tag: string, view: View) {
+  return new URLSearchParams({
     q: search,
     status,
-    page: String(page),
+    tag,
     archived: String(view === 'archived'),
   })
+}
+
+function pageUrl(search: string, status: string, tag: string, page: number, view: View) {
+  const params = filterParams(search, status, tag, view)
+  params.set('page', String(page))
   return `/api/tasks?${params.toString()}`
 }
 
@@ -95,12 +112,19 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
+  const [tagDraft, setTagDraft] = useState('')
+  const [tag, setTag] = useState('')
   const [view, setView] = useState<View>('active')
   const [page, setPage] = useState(0)
   const [reloadKey, setReloadKey] = useState(0)
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [newTags, setNewTags] = useState('')
   const [editing, setEditing] = useState<Task | null>(null)
+  const [editTags, setEditTags] = useState('')
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [operation, setOperation] = useState<Operation>('ARCHIVE')
+  const [bulkStatus, setBulkStatus] = useState('DOING')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [rejected, setRejected] = useState<Rejection[]>([])
@@ -111,11 +135,16 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [query])
 
+  useEffect(() => {
+    const timer = setTimeout(() => setTag(tagDraft.trim().toLowerCase()), 300)
+    return () => clearTimeout(timer)
+  }, [tagDraft])
+
   // One request per change; a superseded request is aborted, so a slow response
   // cannot overwrite a newer one.
   useEffect(() => {
     const controller = new AbortController()
-    call<Page>(pageUrl(search, status, page, view), { signal: controller.signal })
+    call<Page>(pageUrl(search, status, tag, page, view), { signal: controller.signal })
       .then((result) => {
         setData(result)
         setError(null)
@@ -126,7 +155,7 @@ export default function App() {
         }
       })
     return () => controller.abort()
-  }, [search, status, page, view, reloadKey])
+  }, [search, status, tag, page, view, reloadKey])
 
   async function mutate(action: () => Promise<void>) {
     setBusy(true)
@@ -179,12 +208,7 @@ export default function App() {
   }
 
   function exportHref() {
-    const params = new URLSearchParams({
-      q: search,
-      status,
-      archived: String(view === 'archived'),
-    })
-    return `/api/tasks/export?${params.toString()}`
+    return `/api/tasks/export?${filterParams(search, status, tag, view).toString()}`
   }
 
   function reload() {
@@ -201,11 +225,18 @@ export default function App() {
     setPage(0)
   }
 
+  function changeTag(value: string) {
+    setTagDraft(value)
+    setPage(0)
+  }
+
   function changeView(next: View) {
     setView(next)
     setPage(0)
     setEditing(null)
     setNotice(null)
+    setSelected(new Set())
+    setOperation(next === 'active' ? 'ARCHIVE' : 'RESTORE')
   }
 
   function add(event: FormEvent) {
@@ -213,14 +244,20 @@ export default function App() {
     void mutate(async () => {
       await call<Task>('/api/tasks', {
         method: 'POST',
-        body: JSON.stringify({ title, status: 'TODO', dueDate: dueDate || null }),
+        body: JSON.stringify({ title, status: 'TODO', dueDate: dueDate || null, tags: splitTags(newTags) }),
       })
       setTitle('')
       setDueDate('')
+      setNewTags('')
       setView('active')
       setPage(0)
       reload()
     })
+  }
+
+  function startEdit(task: Task) {
+    setEditing(task)
+    setEditTags(task.tags.join(', '))
   }
 
   function saveEdit(event: FormEvent | MouseEvent) {
@@ -236,6 +273,7 @@ export default function App() {
             title: target.title,
             status: target.status,
             dueDate: target.dueDate,
+            tags: splitTags(editTags),
           }),
         })
         setEditing(null)
@@ -271,6 +309,12 @@ export default function App() {
   function archive(task: Task) {
     void mutate(async () => {
       await call<void>(`/api/tasks/${task.id}`, { method: 'DELETE' })
+      setSelected((current) => {
+        if (!current.has(task.id)) return current
+        const next = new Set(current)
+        next.delete(task.id)
+        return next
+      })
       setNotice(`Archived "${task.title}". Switch to Archived to restore it.`)
       stepBackIfLast()
     })
@@ -279,18 +323,77 @@ export default function App() {
   function restore(task: Task) {
     void mutate(async () => {
       await call<Task>(`/api/tasks/${task.id}/restore`, { method: 'POST' })
+      setSelected((current) => {
+        if (!current.has(task.id)) return current
+        const next = new Set(current)
+        next.delete(task.id)
+        return next
+      })
       setNotice(`Restored "${task.title}". Switch to Active to see it.`)
       stepBackIfLast()
     })
   }
 
+  function toggleOne(id: number) {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function togglePage(checked: boolean) {
+    setSelected((current) => {
+      const next = new Set(current)
+      for (const task of data.content) {
+        if (checked) next.add(task.id)
+        else next.delete(task.id)
+      }
+      return next
+    })
+  }
+
+  async function applyBulk() {
+    const ids = Array.from(selected)
+    if (ids.length === 0) return
+    const chosen = operation
+    const status = chosen === 'STATUS' ? bulkStatus : null
+    await mutate(async () => {
+      const result = await call<{ updated: number }>('/api/tasks/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ ids, operation: chosen, status }),
+      })
+      const noun = result.updated === 1 ? 'task' : 'tasks'
+      setNotice(
+        chosen === 'ARCHIVE'
+          ? `Archived ${result.updated} ${noun}.`
+          : chosen === 'RESTORE'
+            ? `Restored ${result.updated} ${noun}.`
+            : `Set ${result.updated} ${noun} to ${status}.`,
+      )
+      // Everything selected was on this page and has now left the view: go back
+      // instead of showing an empty page beyond the end of the list.
+      const pageEmptied = data.content.every((task) => selected.has(task.id))
+      setSelected(new Set())
+      if (pageEmptied && page > 0) setPage((current) => current - 1)
+      else reload()
+    })
+  }
+
   const totalPages = Math.max(data.totalPages, 1)
+  const pageSelected = data.content.length > 0 && data.content.every((task) => selected.has(task.id))
+  const operations: Operation[] = view === 'active' ? ['ARCHIVE', 'STATUS'] : ['RESTORE']
+  const filtered = search !== '' || status !== '' || tag !== ''
 
   return (
     <div className="app">
       <header>
         <h1>Tasks</h1>
-        <p>No auth by design. Search, status filter and paging are server-side. Deleting archives a task; nothing is lost.</p>
+        <p>
+          No auth by design. Search, tag and status filters are server-side. Deleting archives
+          a task; nothing is lost. Tick rows to act on them in bulk.
+        </p>
       </header>
 
       <form className="add" onSubmit={add}>
@@ -305,6 +408,12 @@ export default function App() {
           value={dueDate}
           onChange={(event) => setDueDate(event.target.value)}
         />
+        <input
+          value={newTags}
+          onChange={(event) => setNewTags(event.target.value)}
+          placeholder="Tags, comma-separated (max 5)"
+          aria-label="Tags for the new task"
+        />
         <button type="submit" disabled={busy}>Add</button>
       </form>
 
@@ -315,6 +424,12 @@ export default function App() {
           onChange={(event) => changeQuery(event.target.value)}
           placeholder="Search titles"
           aria-label="Search titles"
+        />
+        <input
+          value={tagDraft}
+          onChange={(event) => changeTag(event.target.value)}
+          placeholder="Filter by tag"
+          aria-label="Filter by tag"
         />
         <select
           value={status}
@@ -350,6 +465,34 @@ export default function App() {
         </label>
       </div>
 
+      {selected.size > 0 ? (
+        <div className="bulk" role="group" aria-label="Bulk actions">
+          <strong>{selected.size} selected</strong>
+          <select
+            value={operation}
+            onChange={(event) => setOperation(event.target.value as Operation)}
+            aria-label="Bulk operation"
+          >
+            {operations.map((value) => (
+              <option key={value} value={value}>
+                {value === 'ARCHIVE' ? 'Archive' : value === 'RESTORE' ? 'Restore' : 'Set status'}
+              </option>
+            ))}
+          </select>
+          {operation === 'STATUS' ? (
+            <select
+              value={bulkStatus}
+              onChange={(event) => setBulkStatus(event.target.value)}
+              aria-label="Status to set"
+            >
+              {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          ) : null}
+          <button type="button" onClick={() => void applyBulk()} disabled={busy}>Apply</button>
+          <button type="button" onClick={() => setSelected(new Set())}>Clear</button>
+        </div>
+      ) : null}
+
       {error ? <p className="error" role="alert">{error}</p> : null}
       {notice ? <p className="notice" role="status">{notice}</p> : null}
       {rejected.length > 0 ? (
@@ -361,7 +504,16 @@ export default function App() {
       <table>
         <thead>
           <tr>
+            <th className="pick">
+              <input
+                type="checkbox"
+                checked={pageSelected}
+                onChange={(event) => togglePage(event.target.checked)}
+                aria-label="Select every task on this page"
+              />
+            </th>
             <th>Title</th>
+            <th>Tags</th>
             <th>Status</th>
             <th>Due</th>
             <th />
@@ -371,6 +523,7 @@ export default function App() {
           {data.content.map((task) => (
             editing?.id === task.id ? (
               <tr key={task.id} className="editing">
+                <td className="pick" />
                 <td>
                   <form id={`edit-${task.id}`} onSubmit={saveEdit}>
                     <input
@@ -380,6 +533,14 @@ export default function App() {
                       required
                     />
                   </form>
+                </td>
+                <td>
+                  <input
+                    value={editTags}
+                    onChange={(event) => setEditTags(event.target.value)}
+                    placeholder="work, home"
+                    aria-label="Tags"
+                  />
                 </td>
                 <td>
                   <select
@@ -403,13 +564,34 @@ export default function App() {
               </tr>
             ) : (
               <tr key={task.id}>
+                <td className="pick">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(task.id)}
+                    onChange={() => toggleOne(task.id)}
+                    aria-label={`Select ${task.title}`}
+                  />
+                </td>
                 <td>{task.title}</td>
+                <td className="tags">
+                  {task.tags.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className="chip"
+                      onClick={() => changeTag(name)}
+                      title={`Show only tasks tagged ${name}`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </td>
                 <td><span className={`status ${task.status.toLowerCase()}`}>{task.status}</span></td>
                 <td>{task.dueDate ?? '—'}</td>
                 <td className="actions">
                   {view === 'active' ? (
                     <>
-                      <button type="button" onClick={() => setEditing(task)}>Edit</button>
+                      <button type="button" onClick={() => startEdit(task)}>Edit</button>
                       <button type="button" disabled={busy} onClick={() => archive(task)}>
                         Archive
                       </button>
@@ -425,8 +607,8 @@ export default function App() {
           ))}
           {data.content.length === 0 ? (
             <tr>
-              <td colSpan={4} className="empty">
-                {search !== '' || status !== ''
+              <td colSpan={6} className="empty">
+                {filtered
                   ? 'No tasks match those filters.'
                   : view === 'archived'
                     ? 'Nothing archived.'

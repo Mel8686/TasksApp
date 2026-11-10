@@ -30,8 +30,8 @@ body {
 header h1 { margin: 0; font-size: 1.7rem; letter-spacing: -0.02em; }
 header p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.9rem; }
 
-.add { display: flex; gap: 0.5rem; }
-.add input[type="text"], .add input:not([type]) { flex: 1; }
+.add { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.add input[type="text"], .add input:not([type]) { flex: 1; min-width: 10rem; }
 
 input, select, button {
   font: inherit;
@@ -86,6 +86,33 @@ td input, td select { width: 100%; }
 .empty { color: var(--muted); text-align: center; }
 .error { color: var(--danger); background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0; }
 .editing { background: #f8fafc; }
+
+.pick { width: 2.2rem; }
+.pick input { width: auto; }
+
+.tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.chip {
+  padding: 0.05rem 0.45rem;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.chip:hover { background: #e0e7ff; }
+
+.bulk {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+}
+.bulk strong { font-size: 0.85rem; }
 
 .filters { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .filters input { flex: 1; min-width: 10rem; }
