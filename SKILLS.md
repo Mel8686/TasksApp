@@ -97,6 +97,51 @@ anything was planted.
 - **What this does not show:** that the app gets faster. Detection is not efficacy,
   and n = 6. The open question is now Test B, not "is it accurate".
 
+### Pre-registered: Test B, a fixture the rules do not agree with instinct
+
+Test A was too easy: five of six were found with no skill, because the violations
+look like mistakes. Test B keeps the same protocol and changes the fixture, so the
+only variable is the fixture's difficulty. Two files, `board.ts` and
+`TaskBoard.tsx`, in `%TEMP%/opencode/perf-test-2/src/`; nothing else in that folder.
+Four blind reviewers, two per arm, same prompt within an arm, no mention that
+anything is planted. Foreground, parallel, one pass each, no follow-up.
+
+The six planted items are chosen so that each one is a pattern a competent
+reviewer might defend: an effect that computes a count reads as "normal React"; a
+manual `loading` boolean is what most codebases do; a default `tags = []` looks
+like defensive coding; awaiting the config before checking the flag looks
+necessary; a fresh `filters` object in deps looks like clarity; a `setState` on
+mousemove is unambiguous but easy to skim past.
+
+| # | Planted (file: what) | Accepted rule id(s) |
+|---|---|---|
+| 1 | `TaskBoard.tsx` `OpenCount`: count kept in state, set from an effect | `rerender-derived-state-no-effect` / `rerender-derived-state` |
+| 2 | `TaskBoard.tsx` `StatusFilter`: `filters` object built in render, used in effect deps | `rerender-dependencies` |
+| 3 | `TaskBoard.tsx` `SearchBox`: manual `searching` boolean around an await | `rendering-usetransition-loading` |
+| 4 | `TaskBoard.tsx` `CursorGlow`: `mousemove` writes `setState` | `rerender-use-ref-transient-values` |
+| 5 | `TaskBoard.tsx` `TagList`: `memo` component with `tags = []` default, rendered as `<TagList />` | `rerender-memo-with-default-value` / `rerender-memo` |
+| 6 | `board.ts` `notifyIfEnabled`: `await fetchConfig()` before the cheap `enabled` check | `async-cheap-condition-before-await` |
+
+Scoring, fixed before the run: an item counts only if the reviewer names the
+pattern as a problem at that code location, either by rule id or by a description
+that unambiguously points at the same line. A rule id quoted in a "rules I know"
+preamble does not count. A hedged mention ("this could be memoised further") does
+not count. Both arms are scored against this same key by the same reader.
+Per item, per arm: **stably detected** = both reviewers; **detected** = at least
+one. False positives are recorded but not scored.
+
+Decision, fixed before the run:
+
+- Skill arm stably detects **≥ 5/6** and the baseline stably detects **≤ 3/6** →
+  the skill adds detection on rules that are not common sense.
+- Both arms stably **≥ 5/6** → accurate, still not separable; say so again and
+  stop trying to separate it this way.
+- Skill arm stably **≤ 3/6** → it does not deliver on the rules where it would
+  matter most, and the README's React cell gets that, not the 6/6 from Test A.
+
+The 6/6 from Test A stands as written. Test B does not replace it; it tests
+whether that number came from the skill or from the reviewer.
+
 ## Running tally
 
 - 6 features, 6 security passes, 2 Low + 1 Info findings, all fixed, 0 false positives.
