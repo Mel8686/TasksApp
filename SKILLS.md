@@ -20,14 +20,15 @@ itself.
 | 2026-11-10 | tags | the shape of the read path: `data.md` says never paginate a collection `JOIN FETCH` (in-memory paging), and `open-in-view=false` means load before the method returns — so `@BatchSize(50)` plus an explicit touch, one extra query per page, instead of `@EntityGraph` with `Page` | find-or-create with a unique index: nothing says how to resolve a name to a row without a race, and two concurrent creates of the same tag are a 500 on the constraint; also nothing about validation that spans a whole collection | one `data.md` read, one compile/test round |
 | 2026-11-10 | bulk actions | confirmed the transaction boundary the feature was chosen to force: `@Transactional` on the use-case boundary, so 100 ids commit or roll back together — the gap the four archive reviewers flagged, though the plan to add a service layer predated the read | bulk semantics are all ours: all-or-nothing, per-id 404 vs 409, and dropping `If-Match` for a batch. It also says "services return DTOs", which this repo forbids, so the entities are initialized in the transaction and returned anyway | 1 service class, 0 defects, 0 queries wasted |
 | 2026-11-11 | sort | `data.md`: "always sort on a stable, unique column (`Sort.by("id")`)" — that is the `id` tie-breaker, and the reason paging over duplicate titles neither drops nor repeats a row (verified: 21 ids over 5 pages, 21 unique). Its parameter-validation shape is what the 400 reuses | nothing on turning a user-chosen order into a whitelist: the token map, the 400 for an unknown token and `nullsLast()` on a nullable date are ours | 0 reference reads (applied from the earlier `data.md` read), 1 unit test, 0 defects |
+| 2026-11-11 | inline editing | nothing new: `PATCH` is the `If-Match` + `ProblemDetail` shape `rest-api.md` already established for `PUT`, with a one-field body | partial updates as a request shape: no guidance on `PATCH` vs `PUT`, and none on telling an absent field from an explicit null — which is exactly why this `PATCH` is title-only instead of general | 0 reference reads, 3 lines in the service, 3 lines in the controller |
 
 ## `vercel-react-best-practices`
 
-**What it had to work with:** one screen. `App.tsx` is 588 lines holding 5
-components, 3 effects and 22 `useState`; no router, no context, no client cache,
-two source files, 5 rows per page by default and a hard cap of 50. Read all of
-this section as evidence about a skill with almost no surface here, not as a
-verdict on the skill.
+**What it had to work with:** one screen, and literally one component. `App.tsx` is
+699 lines holding a single `App` with 3 effects and 25 `useState`; no router, no
+context, no client cache, two source files, 5 rows per page by default and a hard
+cap of 50. Read all of this section as evidence about a skill with almost no
+surface here, not as a verdict on the skill.
 
 | Date | Feature | Caught | Missed | Cost |
 |---|---|---|---|---|
@@ -38,6 +39,7 @@ verdict on the skill.
 | 2026-11-10 | tags | endorsed reusing the debounced + aborted fetch effect for the new `tag` parameter, and `rerender-derived-state` / `rendering-conditional-render` shaped the chips and the empty state (ternaries, nothing stored twice) | chip-click-as-filter is UI state design it has no rule for; also silent that a selection must be cleared when its row leaves the view — correctness again, not performance | 0 |
 | 2026-11-10 | bulk actions | `js-set-map-lookups` (the selection is a `Set`, O(1) per row) and `rerender-functional-setstate` on every selection write, which is what keeps the page checkbox honest | the "did every selected row just leave this page?" step-back is the same bug class as archive's; no rule. And `rerender-memo` had to be declined per `rerender-simple-expression-in-memo` — the skill working as intended, by saying no | 0 |
 | 2026-11-11 | sort | `rerender-dependencies` again, and this time it shaped the change: `sort` joins the fetch effect as a primitive string, so the debounced + aborted effect still fires once per change instead of looping on a rebuilt object | changing the order must reset `page` and drop the selection — a re-sorted page holds different rows, so a kept page number and a kept `Set` both point at rows no longer on screen. Third feature running where that class is ours to remember, not the skill's to warn about | 0 |
+| 2026-11-11 | inline editing | `rerender-functional-setstate` is what makes the optimistic write safe: every `setData` in the rename is functional, so a fetch that lands mid-write is composed with it instead of clobbered | the two defects this feature produced are lifecycle, not render cost — two renames on one row send the same `If-Match`, and the rollback must restore one field on the current row rather than the whole pre-request snapshot. Both found by reading the code, not by a rule. `rendering-usetransition-loading` was considered and declined: the wait is a request, and `useTransition` tracks render work | 0, one build round |
 
 ## `owasp-security`
 
@@ -50,6 +52,7 @@ verdict on the skill.
 | 2026-11-10 | tags | A09: the new rejections were `ResponseStatusException`, which returned the right status through the catch-all but wrote no log line — against the handler's own stated contract. Fixed with one handler that covers every hand-raised 4xx. Then confirmed the CSV formula guard still holds for the joined `tags` cell (only the cell's first character is dangerous, and the cell is neutralized as a whole) and that tag names reach only parameterized queries and React text nodes | no rule for the unique-constraint race in find-or-create: a duplicate insert is a 500 with a generic message and an `errorId`, i.e. fail-closed but not prevented. Found while writing, not from the checklist | 1 pass, 2 probes (`ids:[null]`, a `|` in a tag), 1 Info fixed |
 | 2026-11-10 | bulk actions | confirmed the new input class is bounded at the boundary (`ids` non-empty, ≤ 100, no nulls) and that nothing client-controlled is mapped beyond `ids`/`operation`/`status` — no mass assignment of `version` or `archivedAt`. Verified a failed id rolls the whole batch back and leaves the rows untouched | no opinion on dropping `If-Match` for a batch (A06/A08): a documented design decision, and with no auth there is no boundary to cross; it also has nothing on partial-failure semantics, because batch writes are not in its vocabulary | 1 pass, 3 probes (stale `If-Match`, missing id, `ids:[null]`), 0 findings |
 | 2026-11-11 | sort | confirmed the whitelist closes the classic sort-injection path: the token is a key in a five-entry map, so no client text reaches a property or an expression, the 400 does not echo the input back, and that 400 is logged (A09, seen in the log) | sort / `ORDER BY` is absent from its vocabulary: `grep -i 'sort\|order by'` over `review-checklist.md` and `owasp-report.md` returns nothing. "Whitelist the token, never a field name" is knowledge the review did not supply — A05 covers it only in principle | 1 pass, 2 probes (`sort=title;drop`, `sort=createdAt`), 0 findings |
+| 2026-11-11 | inline editing | confirmed the new write path cannot mass-assign: the body record has exactly one field, so `version`, `status`, `archivedAt`, `tags` and `id` sent beside `title` are ignored. Probed live — all five unchanged, version moved 1→2, not to 99. Also confirmed archived rows stay unwritable (404) and every new rejection is logged | nothing on optimistic-UI request ordering, which is where both frontend defects were; and A01 stays out of scope by design | 1 pass, 6 probes (stale, missing and unparseable `If-Match`, blank title, 201 chars, mass assignment), 0 findings |
 
 ## Pre-registered: is `vercel-react-best-practices` useful for what it claims?
 
@@ -183,7 +186,7 @@ was told anything was planted. `✓` = both reviewers named it at the right line
 - **Not separable from a strong reviewer, twice.** Test B existed to break the tie
   and did not. Its visible value is naming and ranking, not finding more.
 - **The likely reason is scope, not the skill.** This frontend is too simple for a
-  performance skill to have room: one screen, 5 components, 3 effects, no router,
+  performance skill to have room: one component, 699 lines, 3 effects, no router,
   no client cache, no memoisation pressure, ≤ 50 rows, two source files. The skill
   is written for a frontend with waterfalls, long lists, expensive renders and a
   bundle worth splitting — an app this one is not.
@@ -196,16 +199,17 @@ was told anything was planted. `✓` = both reviewers named it at the right line
 
 ## Running tally
 
-- 7 features, 7 security passes, 2 Low + 1 Info findings, all fixed, 0 false positives.
+- 8 features, 8 security passes, 2 Low + 1 Info findings, all fixed, 0 false positives.
 - 2 defects that predate the skills and that their rules exist to prevent:
   entity-as-payload (F-03), free-text status (F-04).
-- 9 gaps recorded above. The pattern: skills are strongest on conventions they
+- 10 gaps recorded above. The pattern: skills are strongest on conventions they
   name explicitly, and silent on the seam between two technologies (JPA version
   ↔ HTTP precondition, React state ↔ fetch lifecycle), on a whole feature the
   vocabulary predates (soft delete), on classic sinks they never name (sort /
-  `ORDER BY` injection), and on lifecycle rules that span a page or a view —
-  selection, find-or-create, batch partial failure.
+  `ORDER BY` injection, partial-update semantics), and on lifecycle rules that
+  span a page or a view — selection, find-or-create, batch partial failure,
+  optimistic write ordering.
 - `vercel-react-best-practices`: accurate twice (6/6 in both fixtures), separable
-  neither time (5/6 without it in both). 0 defects caught across seven features, 1
-  defensive rule declined. Most likely bound by how little this frontend does,
-  which makes it unproven here rather than wrong.
+  neither time (5/6 without it in both). 0 defects caught across eight features, 1
+  rule declined for a veto and 1 for a network wait. Most likely bound by how
+  little this frontend does, which makes it unproven here rather than wrong.

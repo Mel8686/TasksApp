@@ -74,10 +74,25 @@ public class TaskService {
         // The 409/412 body carries this row, so its tags must be loaded too.
         loadTags(List.of(task));
 
-        if (expectedVersion != null && expectedVersion != task.getVersion()) {
-            throw new TaskConflictException(task);
-        }
+        requireVersion(task, expectedVersion);
         apply(task, changes);
+        return task;
+    }
+
+    /**
+     * Title-only partial update for inline editing. Nothing else on the row can
+     * be reached from the request body, so no field can be mass-assigned.
+     *
+     * @param expectedVersion the version the client read, or null for
+     *                        {@code If-Match: *}, which skips the check
+     */
+    @Transactional
+    public Task rename(Long id, Long expectedVersion, String title) {
+        Task task = tasks.findByIdAndArchivedAtIsNull(id).orElseThrow(() -> notFound(id));
+        loadTags(List.of(task));
+
+        requireVersion(task, expectedVersion);
+        task.setTitle(title.strip());
         return task;
     }
 
@@ -201,6 +216,16 @@ public class TaskService {
                 .replace("%", "\\%")
                 .replace("_", "\\_");
         return "%" + escaped.toLowerCase(Locale.ROOT) + "%";
+    }
+
+    /**
+     * A stale {@code If-Match} is a lost update, so it is refused with the
+     * current row; {@code null} — what {@code If-Match: *} yields — opts out.
+     */
+    private static void requireVersion(Task task, Long expectedVersion) {
+        if (expectedVersion != null && expectedVersion.longValue() != task.getVersion()) {
+            throw new TaskConflictException(task);
+        }
     }
 
     private static ResponseStatusException notFound(Long id) {

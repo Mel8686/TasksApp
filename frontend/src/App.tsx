@@ -116,6 +116,11 @@ function pageUrl(search: string, status: string, tag: string, page: number, view
   return `/api/tasks?${params.toString()}`
 }
 
+/** Replace one row, keeping its position: the list is server-ordered. */
+function withRow(page: Page, task: Task): Page {
+  return { ...page, content: page.content.map((row) => (row.id === task.id ? task : row)) }
+}
+
 export default function App() {
   const [data, setData] = useState<Page>(EMPTY_PAGE)
   const [error, setError] = useState<string | null>(null)
@@ -133,6 +138,8 @@ export default function App() {
   const [newTags, setNewTags] = useState('')
   const [editing, setEditing] = useState<Task | null>(null)
   const [editTags, setEditTags] = useState('')
+  const [renaming, setRenaming] = useState<{ id: number; title: string; version: number } | null>(null)
+  const [savingId, setSavingId] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [operation, setOperation] = useState<Operation>('ARCHIVE')
   const [bulkStatus, setBulkStatus] = useState('DOING')
@@ -275,6 +282,58 @@ export default function App() {
   function startEdit(task: Task) {
     setEditing(task)
     setEditTags(task.tags.join(', '))
+    setRenaming(null)
+  }
+
+  function beginRename(task: Task) {
+    setEditing(null)
+    setRenaming({ id: task.id, title: task.title, version: task.version })
+  }
+
+  /**
+   * Optimistic rename: the row shows the new title before the request lands, so
+   * typing never waits on the server. A failure puts the old title back on
+   * whatever the row currently holds — not on a snapshot taken before the
+   * request, which could be older than a reload that landed meanwhile. A 412
+   * means the write was based on a version that has moved on, so the list is
+   * refreshed rather than retried silently.
+   */
+  async function commitRename() {
+    if (!renaming) return
+    const original = data.content.find((row) => row.id === renaming.id)
+    const next = renaming.title.trim()
+    setRenaming(null)
+    if (!original || next === '' || next === original.title) return
+
+    setSavingId(original.id)
+    setError(null)
+    setData((current) => withRow(current, { ...original, title: next }))
+    try {
+      const saved = await call<Task>(`/api/tasks/${original.id}`, {
+        method: 'PATCH',
+        headers: { 'If-Match': `"${renaming.version}"` },
+        body: JSON.stringify({ title: next }),
+      })
+      setData((current) => withRow(current, saved))
+    } catch (cause) {
+      setData((current) => {
+        const row = current.content.find((candidate) => candidate.id === original.id)
+        return row ? withRow(current, { ...row, title: original.title }) : current
+      })
+      if (cause instanceof ApiError && cause.status === 412) {
+        const current = (cause.problem as { current?: Task } | undefined)?.current
+        setNotice(
+          current
+            ? `Someone else saved this task first. It is now "${current.title}"; the list has been refreshed.`
+            : 'Someone else saved this task first. The list has been refreshed.',
+        )
+        reload()
+      } else {
+        setError(cause instanceof Error ? cause.message : 'Rename failed')
+      }
+    } finally {
+      setSavingId(null)
+    }
   }
 
   function saveEdit(event: FormEvent | MouseEvent) {
@@ -589,7 +648,7 @@ export default function App() {
                 </td>
               </tr>
             ) : (
-              <tr key={task.id}>
+              <tr key={task.id} className={savingId === task.id ? 'saving' : undefined}>
                 <td className="pick">
                   <input
                     type="checkbox"
@@ -598,7 +657,39 @@ export default function App() {
                     aria-label={`Select ${task.title}`}
                   />
                 </td>
-                <td>{task.title}</td>
+                <td>
+                  {renaming?.id === task.id ? (
+                    <form
+                      className="rename"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void commitRename()
+                      }}
+                    >
+                      <input
+                        value={renaming.title}
+                        autoFocus
+                        maxLength={200}
+                        required
+                        aria-label="New title"
+                        onChange={(event) => setRenaming({ ...renaming, title: event.target.value })}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Escape') setRenaming(null)
+                        }}
+                      />
+                    </form>
+                  ) : (
+                    <button
+                      type="button"
+                      className="title-link"
+                      title="Rename"
+                      disabled={savingId === task.id}
+                      onClick={() => beginRename(task)}
+                    >
+                      {task.title}
+                    </button>
+                  )}
+                </td>
                 <td className="tags">
                   {task.tags.map((name) => (
                     <button

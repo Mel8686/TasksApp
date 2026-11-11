@@ -11,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -147,6 +148,20 @@ public class TaskController {
             @Valid @RequestBody TaskRequest changes) {
 
         return withVersion(service.update(id, parseIfMatch(ifMatch), changes));
+    }
+
+    /**
+     * Title-only partial update for inline editing. Everything else on the row
+     * is untouched, and it takes {@code If-Match} exactly like {@code PUT}: a
+     * rename is still a write against a version the client read.
+     */
+    @PatchMapping("/{id}")
+    public ResponseEntity<Task> rename(
+            @PathVariable Long id,
+            @RequestHeader(value = "If-Match", required = false) String ifMatch,
+            @Valid @RequestBody TaskTitlePatch patch) {
+
+        return withVersion(service.rename(id, parseIfMatch(ifMatch), patch.title()));
     }
 
     /**

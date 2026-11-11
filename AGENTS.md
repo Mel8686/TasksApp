@@ -56,6 +56,11 @@ happened, not from what the skill promises. The `README.md` table is the summary
 - `PUT` requires `If-Match`. A stale version returns 412 with the current row as
   `current`; a missing header returns 428; an unparseable one returns 400.
   `If-Match: *` skips the check and overwrites.
+- `PATCH /api/tasks/{id}` takes `{title}` only — not blank, ≤ 200 — and is the
+  inline-edit path. Everything else on the row is untouched, and the request
+  record cannot carry `status`, `tags`, `version` or `archivedAt`, so nothing is
+  mass-assignable. It takes `If-Match` exactly like `PUT`: 412 with `current`,
+  428 when missing, 400 when unparseable, 404 for a missing or archived row.
 
 Backend is still ahead of the frontend in one place: there is no DTO layer, so
 the `Task` type is hand-copied from `Task.java`. Fix it when a feature needs it,

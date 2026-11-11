@@ -87,6 +87,24 @@ td input, td select { width: 100%; }
 .error { color: var(--danger); background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 0.6rem 0.8rem; margin: 0; }
 .editing { background: #f8fafc; }
 
+/* A rename in flight: the title is already shown, so dim rather than block. */
+.saving { opacity: 0.55; }
+
+.title-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: text;
+}
+
+.title-link:hover,
+.title-link:focus-visible { color: var(--accent); }
+
+.rename input { width: 100%; }
+
 .pick { width: 2.2rem; }
 .pick input { width: auto; }
 
