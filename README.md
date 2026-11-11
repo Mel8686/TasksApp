@@ -28,13 +28,13 @@ fallbacks in `application.properties`. No `.env`, no secrets in the repo.
 
 | Endpoint | Notes |
 |---|---|
-| `GET /api/tasks?q=&status=&tag=&archived=&page=&size=` | paged list, `PageResponse` |
+| `GET /api/tasks?q=&status=&tag=&archived=&sort=&page=&size=` | paged list, `PageResponse` |
 | `POST /api/tasks` | create, `201` |
 | `GET` / `PUT /api/tasks/{id}` | read, update; `404` on a missing id |
 | `DELETE /api/tasks/{id}` | archive (soft delete), `204` |
 | `POST /api/tasks/{id}/restore` | un-archive, `200`; `409` if not archived |
 | `POST /api/tasks/bulk` | archive / restore / set status for 1–100 ids, one transaction |
-| `GET /api/tasks/export` | CSV of the current filter, with `archivedAt` and `tags` |
+| `GET /api/tasks/export` | CSV of the current filter and order, with `archivedAt` and `tags` |
 | `POST /api/tasks/import` | multipart `file`, all-or-nothing |
 
 - `PUT` requires `If-Match: "<version>"`. Stale → `412` with the current row as
@@ -44,7 +44,8 @@ fallbacks in `application.properties`. No `.env`, no secrets in the repo.
   in the log.
 - Bounds: `size` 1–50, `page` 0–10000, `q` ≤ 100, `tag` ≤ 30, `title` ≤ 200,
   `tags` ≤ 5 × 30, bulk ≤ 100 ids, imports ≤ 1 MiB and ≤ 1000 rows. Violations are
-  `400`.
+  `400`. `sort` is one of `newest|title|-title|dueDate|-dueDate` — a token from a
+  whitelist, never a field name; anything else is `400`.
 - Archived rows are hidden from `GET`/`PUT`/`DELETE` and from list/export unless
   `archived=true`. Import always creates active rows.
 

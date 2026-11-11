@@ -2,7 +2,6 @@ package com.dsk.tasks;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,8 +20,6 @@ import java.util.Locale;
 @Service
 public class TaskService {
 
-    private static final Sort NEWEST_FIRST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
-
     private final TaskRepository tasks;
     private final TagService tags;
 
@@ -31,19 +28,24 @@ public class TaskService {
         this.tags = tags;
     }
 
+    /**
+     * @param sort one of {@link TaskSort}'s tokens; unknown tokens are a 400
+     */
     @Transactional(readOnly = true)
-    public Page<Task> list(int page, int size, String q, TaskStatus status, String tag, boolean archived) {
+    public Page<Task> list(int page, int size, String q, TaskStatus status, String tag, boolean archived,
+                           String sort) {
         Page<Task> found = tasks.findAll(filter(q, status, tag, archived),
-                PageRequest.of(page, size, NEWEST_FIRST));
+                PageRequest.of(page, size, TaskSort.parse(sort)));
         loadTags(found.getContent());
         return found;
     }
 
-    /** One page of the export stream; same filter, no count needed. */
+    /** One page of the export stream; same filter and order, no count needed. */
     @Transactional(readOnly = true)
-    public List<Task> batch(int page, int size, String q, TaskStatus status, String tag, boolean archived) {
+    public List<Task> batch(int page, int size, String q, TaskStatus status, String tag, boolean archived,
+                            String sort) {
         List<Task> rows = tasks.findAll(filter(q, status, tag, archived),
-                PageRequest.of(page, size, NEWEST_FIRST)).getContent();
+                PageRequest.of(page, size, TaskSort.parse(sort))).getContent();
         loadTags(rows);
         return rows;
     }

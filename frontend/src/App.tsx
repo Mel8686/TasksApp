@@ -30,6 +30,15 @@ type Rejection = { row: number; message: string }
 
 const STATUSES = ['TODO', 'DOING', 'DONE']
 
+/** Must match `TaskSort` on the server: a token, never a field name. */
+const SORTS = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'title', label: 'Title A-Z' },
+  { value: '-title', label: 'Title Z-A' },
+  { value: 'dueDate', label: 'Due date, soonest' },
+  { value: '-dueDate', label: 'Due date, latest' },
+]
+
 const EMPTY_PAGE: Page = { content: [], page: 0, size: 5, total: 0, totalPages: 0 }
 
 function describeFailure(status: number, statusText: string, problem: unknown) {
@@ -91,17 +100,18 @@ function splitTags(value: string): string[] {
     .filter((name) => name !== '')
 }
 
-function filterParams(search: string, status: string, tag: string, view: View) {
+function filterParams(search: string, status: string, tag: string, view: View, sort: string) {
   return new URLSearchParams({
     q: search,
     status,
     tag,
     archived: String(view === 'archived'),
+    sort,
   })
 }
 
-function pageUrl(search: string, status: string, tag: string, page: number, view: View) {
-  const params = filterParams(search, status, tag, view)
+function pageUrl(search: string, status: string, tag: string, page: number, view: View, sort: string) {
+  const params = filterParams(search, status, tag, view, sort)
   params.set('page', String(page))
   return `/api/tasks?${params.toString()}`
 }
@@ -115,6 +125,7 @@ export default function App() {
   const [tagDraft, setTagDraft] = useState('')
   const [tag, setTag] = useState('')
   const [view, setView] = useState<View>('active')
+  const [sort, setSort] = useState('newest')
   const [page, setPage] = useState(0)
   const [reloadKey, setReloadKey] = useState(0)
   const [title, setTitle] = useState('')
@@ -144,7 +155,7 @@ export default function App() {
   // cannot overwrite a newer one.
   useEffect(() => {
     const controller = new AbortController()
-    call<Page>(pageUrl(search, status, tag, page, view), { signal: controller.signal })
+    call<Page>(pageUrl(search, status, tag, page, view, sort), { signal: controller.signal })
       .then((result) => {
         setData(result)
         setError(null)
@@ -155,7 +166,7 @@ export default function App() {
         }
       })
     return () => controller.abort()
-  }, [search, status, tag, page, view, reloadKey])
+  }, [search, status, tag, page, view, sort, reloadKey])
 
   async function mutate(action: () => Promise<void>) {
     setBusy(true)
@@ -208,7 +219,7 @@ export default function App() {
   }
 
   function exportHref() {
-    return `/api/tasks/export?${filterParams(search, status, tag, view).toString()}`
+    return `/api/tasks/export?${filterParams(search, status, tag, view, sort).toString()}`
   }
 
   function reload() {
@@ -228,6 +239,12 @@ export default function App() {
   function changeTag(value: string) {
     setTagDraft(value)
     setPage(0)
+  }
+
+  function changeSort(value: string) {
+    setSort(value)
+    setPage(0)
+    setSelected(new Set())
   }
 
   function changeView(next: View) {
@@ -438,6 +455,15 @@ export default function App() {
         >
           <option value="">All statuses</option>
           {STATUSES.map((value) => <option key={value} value={value}>{value}</option>)}
+        </select>
+        <select
+          value={sort}
+          onChange={(event) => changeSort(event.target.value)}
+          aria-label="Sort tasks"
+        >
+          {SORTS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
         </select>
         <div className="segmented" role="group" aria-label="Show active or archived tasks">
           <button

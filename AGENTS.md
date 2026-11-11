@@ -26,10 +26,14 @@ happened, not from what the skill promises. The `README.md` table is the summary
   `status` one of `TODO|DOING|DONE` (defaults to `TODO`), optional `dueDate`, and
   `tags` — at most 5, each ≤ 30 chars, lowercased and de-duplicated, no `|`.
   `tags` is a full replacement: omitting it clears the tags. Violations return 400.
-- `GET /api/tasks?q=&status=&tag=&archived=&page=&size=` returns `PageResponse`
+- `GET /api/tasks?q=&status=&tag=&archived=&sort=&page=&size=` returns `PageResponse`
   (`content/page/size/total/totalPages`). `size` is 1–50 (default 5), `page` is
   0–10000, `q` ≤ 100 chars, `tag` ≤ 30 chars, `archived` is a boolean (default
-  false); violations return 400.
+  false); violations return 400. `sort` is a whitelist token —
+  `newest|title|-title|dueDate|-dueDate`, default `newest` — never a field name,
+  so nothing client-controlled reaches a property or an expression; an unknown
+  token is a 400. Every order ends with `id` so paging is stable, and `dueDate`
+  keeps empty dates last in both directions.
 - Every error is an RFC 9457 `ProblemDetail`; 5xx carries an `errorId` that also
   appears in the log, and every 4xx the API raises on purpose is logged.
 - A missing id returns 404 for `GET`, `PUT` and `DELETE`.
@@ -43,7 +47,7 @@ happened, not from what the skill promises. The `README.md` table is the summary
   status / unknown) or 409 (restore of an active row) and nothing is written.
   Returns `{updated}`. It takes no `If-Match` on purpose: one stale row would
   abort the batch, so the operation wins.
-- `GET /api/tasks/export` streams the current filter as CSV, including
+- `GET /api/tasks/export` streams the current filter and order as CSV, including
   `archivedAt` and `tags` (`a|b`); `POST /api/tasks/import` takes a multipart
   `file` (≤ 1 MiB, ≤ 1000 rows) and is all-or-nothing: any bad row rejects the
   whole batch with 400. Import ignores `archivedAt` and creates active rows.

@@ -48,18 +48,23 @@ public class TaskController {
     public record BulkResult(int updated) {
     }
 
+    /**
+     * {@code sort} is a token from a whitelist, never a field name: see
+     * {@link TaskSort}. An unknown token is a 400, not a 500.
+     */
     @GetMapping
     public PageResponse<Task> list(
             @RequestParam(defaultValue = "") @Size(max = 100, message = "q must be at most 100 characters") String q,
             @RequestParam(required = false) TaskStatus status,
             @RequestParam(defaultValue = "") @Size(max = 30, message = "tag must be at most 30 characters") String tag,
             @RequestParam(defaultValue = "false") boolean archived,
+            @RequestParam(defaultValue = TaskSort.DEFAULT) String sort,
             @RequestParam(defaultValue = "0") @Min(value = 0, message = "page must not be negative")
             @Max(value = 10_000, message = "page must be at most 10000") int page,
             @RequestParam(defaultValue = "5") @Min(value = 1, message = "size must be at least 1")
             @Max(value = 50, message = "size must be at most 50") int size) {
 
-        return PageResponse.of(service.list(page, size, q, status, tag, archived));
+        return PageResponse.of(service.list(page, size, q, status, tag, archived, sort));
     }
 
     /**
@@ -73,6 +78,7 @@ public class TaskController {
             @RequestParam(required = false) TaskStatus status,
             @RequestParam(defaultValue = "") @Size(max = 30, message = "tag must be at most 30 characters") String tag,
             @RequestParam(defaultValue = "false") boolean archived,
+            @RequestParam(defaultValue = TaskSort.DEFAULT) String sort,
             HttpServletResponse response) throws IOException {
 
         response.setContentType("text/csv;charset=UTF-8");
@@ -81,7 +87,7 @@ public class TaskController {
         Writer out = response.getWriter();
         out.write("id,title,status,dueDate,createdAt,archivedAt,tags\r\n");
         for (int page = 0; ; page++) {
-            List<Task> rows = service.batch(page, EXPORT_BATCH, q, status, tag, archived);
+            List<Task> rows = service.batch(page, EXPORT_BATCH, q, status, tag, archived, sort);
             for (Task task : rows) {
                 out.write(task.getId().toString());
                 out.write(',');
